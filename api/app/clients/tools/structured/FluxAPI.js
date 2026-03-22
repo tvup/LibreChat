@@ -21,29 +21,29 @@ const fluxApiJsonSchema = {
         'Text prompt for image generation. Required when action is "generate". Not used for list_finetunes.',
     },
     width: {
-      type: 'number',
+      type: 'string',
       description:
         'Width of the generated image in pixels. Must be a multiple of 32. Default is 1024.',
     },
     height: {
-      type: 'number',
+      type: 'string',
       description:
         'Height of the generated image in pixels. Must be a multiple of 32. Default is 768.',
     },
     prompt_upsampling: {
-      type: 'boolean',
-      description: 'Whether to perform upsampling on the prompt.',
+      type: 'string',
+      description: 'Whether to perform upsampling on the prompt. Use "true" or "false".',
     },
     steps: {
-      type: 'integer',
+      type: 'string',
       description: 'Number of steps to run the model for, a number from 1 to 50. Default is 40.',
     },
     seed: {
-      type: 'number',
+      type: 'string',
       description: 'Optional seed for reproducibility.',
     },
     safety_tolerance: {
-      type: 'number',
+      type: 'string',
       description:
         'Tolerance level for input and output moderation. Between 0 and 6, 0 being most strict, 6 being least strict.',
     },
@@ -60,20 +60,20 @@ const fluxApiJsonSchema = {
       description: 'Endpoint to use for image generation.',
     },
     raw: {
-      type: 'boolean',
+      type: 'string',
       description:
-        'Generate less processed, more natural-looking images. Only works for /v1/flux-pro-1.1-ultra.',
+        'Generate less processed, more natural-looking images. Only works for /v1/flux-pro-1.1-ultra. Use "true" or "false".',
     },
     finetune_id: {
       type: 'string',
       description: 'ID of the finetuned model to use',
     },
     finetune_strength: {
-      type: 'number',
+      type: 'string',
       description: 'Strength of the finetuning effect (typically between 0.1 and 1.2)',
     },
     guidance: {
-      type: 'number',
+      type: 'string',
       description: 'Guidance scale for finetuned models',
     },
     aspect_ratio: {
@@ -118,6 +118,10 @@ class FluxAPI extends Tool {
       this.responseFormat = 'content_and_artifact';
     }
     this.returnMetadata = fields.returnMetadata ?? false;
+
+    if (this.isAgent) {
+      this.responseFormat = 'content_and_artifact';
+    }
 
     if (fields.processFileURL) {
       /** @type {processFileURL} Necessary for output to contain all image metadata. */
@@ -187,6 +191,17 @@ class FluxAPI extends Tool {
   }
 
   async _call(data) {
+    // Coerce string values to their expected types (some LLMs send all params as strings)
+    if (typeof data.width === 'string') { data.width = Number(data.width); }
+    if (typeof data.height === 'string') { data.height = Number(data.height); }
+    if (typeof data.steps === 'string') { data.steps = Number(data.steps); }
+    if (typeof data.seed === 'string') { data.seed = Number(data.seed); }
+    if (typeof data.safety_tolerance === 'string') { data.safety_tolerance = Number(data.safety_tolerance); }
+    if (typeof data.finetune_strength === 'string') { data.finetune_strength = Number(data.finetune_strength); }
+    if (typeof data.guidance === 'string') { data.guidance = Number(data.guidance); }
+    if (typeof data.prompt_upsampling === 'string') { data.prompt_upsampling = data.prompt_upsampling === 'true'; }
+    if (typeof data.raw === 'string') { data.raw = data.raw === 'true'; }
+
     const { action = 'generate', ...imageData } = data;
 
     // Use provided API key for this request if available, otherwise use default
@@ -216,10 +231,10 @@ class FluxAPI extends Tool {
 
     // Add optional parameters if provided
     if (imageData.width) {
-      payload.width = imageData.width;
+      payload.width = Number(imageData.width);
     }
     if (imageData.height) {
-      payload.height = imageData.height;
+      payload.height = Number(imageData.height);
     }
     if (imageData.steps) {
       payload.steps = imageData.steps;
@@ -231,7 +246,7 @@ class FluxAPI extends Tool {
       payload.raw = imageData.raw;
     }
 
-    const generateUrl = `${this.baseUrl}${imageData.endpoint || '/v1/flux-pro'}`;
+    const generateUrl = `${this.baseUrl}${imageData.endpoint || '/v1/flux-pro-1.1'}`;
     const resultUrl = `${this.baseUrl}/v1/get_result`;
 
     logger.debug('[FluxAPI] Generating image with payload:', payload);
@@ -258,23 +273,28 @@ class FluxAPI extends Tool {
     }
 
     const taskId = taskResponse.data.id;
+    const pollingUrl = taskResponse.data.polling_url || `${resultUrl}?id=${taskId}`;
+    logger.debug(`[FluxAPI] Task ID: ${taskId}, Polling URL: ${pollingUrl}`);
 
     // Polling for the result
     let status = 'Pending';
     let resultData = null;
+    let pollCount = 0;
     while (status !== 'Ready' && status !== 'Error') {
       try {
-        // Wait 2 seconds between polls
+        pollCount++;
+        logger.debug(`[FluxAPI] Poll #${pollCount} waiting 2s...`);
         await new Promise((resolve) => setTimeout(resolve, 2000));
-        const resultResponse = await axios.get(resultUrl, {
+        logger.debug(`[FluxAPI] Poll #${pollCount} fetching ${pollingUrl}`);
+        const resultResponse = await axios.get(pollingUrl, {
           headers: {
             'x-key': requestApiKey,
             Accept: 'application/json',
           },
-          params: { id: taskId },
           ...this.getAxiosConfig(),
         });
         status = resultResponse.data.status;
+        logger.debug(`[FluxAPI] Poll #${pollCount} status: ${status}`);
 
         if (status === 'Ready') {
           resultData = resultResponse.data.result;
@@ -284,11 +304,11 @@ class FluxAPI extends Tool {
           return this.returnValue('An error occurred during image generation.');
         }
       } catch (error) {
-        const details = this.getDetails(error?.response?.data || error.message);
-        logger.error('[FluxAPI] Error while getting result:', details);
+        logger.error(`[FluxAPI] Poll #${pollCount} error: name=${error?.name} code=${error?.code} status=${error?.response?.status} message=${error?.message} data=${JSON.stringify(error?.response?.data)}`);
         return this.returnValue('An error occurred while retrieving the image.');
       }
     }
+    logger.debug(`[FluxAPI] Polling complete after ${pollCount} polls, status: ${status}`);
 
     // If no result data
     if (!resultData || !resultData.sample) {
@@ -300,9 +320,34 @@ class FluxAPI extends Tool {
     const imageUrl = resultData.sample;
     const imageName = `img-${uuidv4()}.png`;
 
-    if (this.isAgent) {
+    if (this.isAgent && this.processFileURL) {
       try {
-        // Fetch the image and convert to base64
+        const result = await this.processFileURL({
+          fileStrategy: this.fileStrategy,
+          userId: this.userId,
+          URL: imageUrl,
+          fileName: imageName,
+          basePath: 'images',
+          context: FileContext.image_generation,
+        });
+
+        const file_ids = [result.file_id || uuidv4()];
+        const response = [
+          {
+            type: ContentTypes.TEXT,
+            text: displayMessage + `\n\ngenerated_image_id: "${file_ids[0]}"`,
+          },
+        ];
+        // Return pre-saved file metadata in artifact (not content, to avoid
+        // formatArtifactPayload adding large data to model context and
+        // saveBase64Image failing on non-base64 URLs)
+        return [response, { file_ids, imageFile: result }];
+      } catch (error) {
+        logger.error('Error processing image for agent:', error);
+        return this.returnValue(`Failed to process the image. ${error.message}`);
+      }
+    } else if (this.isAgent) {
+      try {
         const fetchOptions = {};
         if (process.env.PROXY) {
           fetchOptions.agent = new HttpsProxyAgent(process.env.PROXY);
@@ -319,13 +364,15 @@ class FluxAPI extends Tool {
           },
         ];
 
+        const file_ids = [uuidv4()];
         const response = [
           {
             type: ContentTypes.TEXT,
-            text: displayMessage,
+            text: displayMessage + `\n\ngenerated_image_id: "${file_ids[0]}"`,
           },
         ];
-        return [response, { content }];
+        // Include content for saveBase64Image to process in callback
+        return [response, { content, file_ids }];
       } catch (error) {
         logger.error('Error processing image for agent:', error);
         return this.returnValue(`Failed to process the image. ${error.message}`);
@@ -449,10 +496,10 @@ class FluxAPI extends Tool {
 
     // Add optional parameters if provided
     if (imageData.width) {
-      payload.width = imageData.width;
+      payload.width = Number(imageData.width);
     }
     if (imageData.height) {
-      payload.height = imageData.height;
+      payload.height = Number(imageData.height);
     }
     if (imageData.steps) {
       payload.steps = imageData.steps;
@@ -490,6 +537,7 @@ class FluxAPI extends Tool {
     }
 
     const taskId = taskResponse.data.id;
+    const pollingUrl = taskResponse.data.polling_url || `${resultUrl}?id=${taskId}`;
 
     // Polling for the result
     let status = 'Pending';
@@ -498,12 +546,11 @@ class FluxAPI extends Tool {
       try {
         // Wait 2 seconds between polls
         await new Promise((resolve) => setTimeout(resolve, 2000));
-        const resultResponse = await axios.get(resultUrl, {
+        const resultResponse = await axios.get(pollingUrl, {
           headers: {
             'x-key': requestApiKey,
             Accept: 'application/json',
           },
-          params: { id: taskId },
           ...this.getAxiosConfig(),
         });
         status = resultResponse.data.status;

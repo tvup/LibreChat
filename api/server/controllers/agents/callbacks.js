@@ -356,6 +356,27 @@ function createToolEndCallback({ req, res, artifactPromises, streamId = null }) 
       );
     }
 
+    if (output.artifact.imageFile) {
+      artifactPromises.push(
+        (async () => {
+          const fileMetadata = Object.assign({}, output.artifact.imageFile, {
+            messageId: metadata.run_id,
+            toolCallId: output.tool_call_id,
+            conversationId: metadata.thread_id,
+          });
+          if (!streamId && !res.headersSent) {
+            return fileMetadata;
+          }
+          writeAttachment(res, streamId, fileMetadata);
+          return fileMetadata;
+        })().catch((error) => {
+          logger.error('Error processing pre-saved image artifact:', error);
+          return null;
+        }),
+      );
+      return;
+    }
+
     if (output.artifact.content) {
       /** @type {FormattedContent[]} */
       const content = output.artifact.content;

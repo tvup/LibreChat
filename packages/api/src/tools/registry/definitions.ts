@@ -108,29 +108,29 @@ export const fluxApiSchema: ExtendedJsonSchema = {
         'Text prompt for image generation. Required when action is "generate". Not used for list_finetunes.',
     },
     width: {
-      type: 'number',
+      type: 'string',
       description:
         'Width of the generated image in pixels. Must be a multiple of 32. Default is 1024.',
     },
     height: {
-      type: 'number',
+      type: 'string',
       description:
         'Height of the generated image in pixels. Must be a multiple of 32. Default is 768.',
     },
     prompt_upsampling: {
-      type: 'boolean',
-      description: 'Whether to perform upsampling on the prompt.',
+      type: 'string',
+      description: 'Whether to perform upsampling on the prompt. Use "true" or "false".',
     },
     steps: {
-      type: 'integer',
+      type: 'string',
       description: 'Number of steps to run the model for, a number from 1 to 50. Default is 40.',
     },
     seed: {
-      type: 'number',
+      type: 'string',
       description: 'Optional seed for reproducibility.',
     },
     safety_tolerance: {
-      type: 'number',
+      type: 'string',
       description:
         'Tolerance level for input and output moderation. Between 0 and 6, 0 being most strict, 6 being least strict.',
     },
@@ -147,20 +147,20 @@ export const fluxApiSchema: ExtendedJsonSchema = {
       description: 'Endpoint to use for image generation.',
     },
     raw: {
-      type: 'boolean',
+      type: 'string',
       description:
-        'Generate less processed, more natural-looking images. Only works for /v1/flux-pro-1.1-ultra.',
+        'Generate less processed, more natural-looking images. Only works for /v1/flux-pro-1.1-ultra. Use "true" or "false".',
     },
     finetune_id: {
       type: 'string',
       description: 'ID of the finetuned model to use',
     },
     finetune_strength: {
-      type: 'number',
+      type: 'string',
       description: 'Strength of the finetuning effect (typically between 0.1 and 1.2)',
     },
     guidance: {
-      type: 'number',
+      type: 'string',
       description: 'Guidance scale for finetuned models',
     },
     aspect_ratio: {

@@ -27,6 +27,11 @@ services:
       - ./images:/app/client/public/images
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      - ./packages/api/dist/index.js:/app/packages/api/dist/index.js
+      - ./api/app/clients/tools/structured/FluxAPI.js:/app/api/app/clients/tools/structured/FluxAPI.js
+      - ./api/server/controllers/agents/callbacks.js:/app/api/server/controllers/agents/callbacks.js
+      - ./api/server/controllers/agents/client.js:/app/api/server/controllers/agents/client.js
+      - ./api/app/clients/tools/structured/StableDiffusion.js:/app/api/app/clients/tools/structured/StableDiffusion.js
   mongodb:
     container_name: chat-mongodb
     image: mongo:8.0.17

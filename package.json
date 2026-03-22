@@ -185,5 +185,8 @@
       "admin/",
       "packages/"
     ]
+  },
+  "dependencies": {
+    "ai-tokenizer": "^1.0.6"
   }
 }

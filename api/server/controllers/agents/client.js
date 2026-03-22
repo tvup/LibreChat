@@ -862,12 +862,15 @@ class AgentClient extends BaseClient {
     } catch (err) {
       logger.error(
         '[api/server/controllers/agents/client.js #sendCompletion] Operation aborted',
-        err,
+        err?.message,
       );
+      if (err?.stack) {
+        logger.error(`[sendCompletion] ${err.name}: ${err.message}\n${err.stack.split('\n').slice(0, 5).join('\n')}`);
+      }
       if (!abortController.signal.aborted) {
         logger.error(
           '[api/server/controllers/agents/client.js #sendCompletion] Unhandled error type',
-          err,
+          err?.message,
         );
         this.contentParts.push({
           type: ContentTypes.ERROR,
