@@ -34,7 +34,7 @@ services:
       - ./api/app/clients/tools/structured/StableDiffusion.js:/app/api/app/clients/tools/structured/StableDiffusion.js
   mongodb:
     container_name: chat-mongodb
-    image: mongo:8.0.17
+    image: mongo:8.0.20
     restart: always
     user: "${UID}:${GID}"
     volumes:
