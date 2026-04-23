@@ -300,7 +300,7 @@ if (cluster.isMaster) {
     /** Routes */
     app.use('/oauth', routes.oauth);
     app.use('/api/auth', routes.auth);
-    app.use('/api/admin', routes.adminAuth);
+    app.use('/api/admin', routes.admin);
     app.use('/api/actions', routes.actions);
     app.use('/api/keys', routes.keys);
     app.use('/api/api-keys', routes.apiKeys);

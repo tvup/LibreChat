@@ -108,7 +108,7 @@ const createPermissionUpdateHandler = (permissionKey) => {
  * Get a specific role by name
  */
 router.get('/:roleName', async (req, res) => {
-  const { roleName } = req.params;
+  const roleName = req.params.roleName.toUpperCase();
 
   try {
     let hasReadRoles = false;

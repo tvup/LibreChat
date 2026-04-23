@@ -38,7 +38,7 @@ export const Banner = ({ onHeightChange }: { onHeightChange?: (height: number) =
   return (
     <div
       ref={bannerRef}
-      className="sticky top-0 z-20 flex items-center bg-presentation px-2 py-1 text-text-primary dark:bg-gradient-to-r md:relative"
+      className="sticky top-0 z-20 flex items-center bg-yellow-100 px-2 py-1 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 md:relative"
     >
       <div
         className={cn(
@@ -55,7 +55,7 @@ export const Banner = ({ onHeightChange }: { onHeightChange?: (height: number) =
           className="size-8"
           onClick={onClick}
         >
-          <XIcon className="mx-auto h-4 w-4 text-text-primary" aria-hidden="true" />
+          <XIcon className="mx-auto h-4 w-4 text-yellow-800 dark:text-yellow-200" aria-hidden="true" />
         </Button>
       )}
     </div>

@@ -311,85 +311,79 @@ export default function FavoritesList({
     <div className="mb-2 flex flex-col">
       <div ref={listContainerRef} className="mt-1 flex flex-col gap-1">
         {/* Show skeletons for ALL items while agents are still loading */}
-        {isAgentsLoading ? (
-          <>
-            {/* Marketplace skeleton */}
-            {showAgentMarketplace && <MarketplaceSkeleton />}
-            {/* Favorite items skeletons */}
-            {safeFavorites.map((_, index) => (
-              <FavoriteItemSkeleton key={`skeleton-${index}`} />
-            ))}
-          </>
-        ) : (
-          <>
-            {/* Agent Marketplace button */}
-            {showAgentMarketplace && (
-              <div
-                ref={marketplaceRef}
-                role="button"
-                tabIndex={0}
-                aria-label={localize('com_agents_marketplace')}
-                className="group relative flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm text-text-primary outline-none hover:bg-surface-active-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-black dark:focus-visible:ring-white"
-                onClick={handleAgentMarketplace}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    handleAgentMarketplace();
-                  }
-                }}
-                data-testid="nav-agents-marketplace-button"
-              >
-                <div className="flex flex-1 items-center truncate pr-6">
-                  <div className="mr-2 h-5 w-5">
-                    <LayoutGrid className="h-5 w-5 text-text-primary" />
-                  </div>
-                  <span className="truncate">{localize('com_agents_marketplace')}</span>
-                </div>
-              </div>
-            )}
-            {safeFavorites.map((fav, index) => {
-              if (fav.agentId) {
-                const agent = combinedAgentsMap?.[fav.agentId];
-                if (!agent) {
-                  return null;
-                }
-                return (
-                  <DraggableFavoriteItem
-                    key={fav.agentId}
-                    id={fav.agentId}
-                    index={index}
-                    moveItem={moveItem}
-                    onDrop={handleDrop}
-                  >
-                    <FavoriteItem
-                      item={agent}
-                      type="agent"
-                      onSelectEndpoint={onSelectEndpoint}
-                      onRemoveFocus={handleRemoveFocus}
-                    />
-                  </DraggableFavoriteItem>
-                );
-              } else if (fav.model && fav.endpoint) {
-                return (
-                  <DraggableFavoriteItem
-                    key={`${fav.endpoint}-${fav.model}`}
-                    id={`${fav.endpoint}-${fav.model}`}
-                    index={index}
-                    moveItem={moveItem}
-                    onDrop={handleDrop}
-                  >
-                    <FavoriteItem
-                      item={{ model: fav.model, endpoint: fav.endpoint }}
-                      type="model"
-                      onSelectEndpoint={onSelectEndpoint}
-                      onRemoveFocus={handleRemoveFocus}
-                    />
-                  </DraggableFavoriteItem>
-                );
+        {/* Marketplace button - always shown when permission allows, not gated by agents loading */}
+        {showAgentMarketplace && (
+          <div
+            ref={marketplaceRef}
+            role="button"
+            tabIndex={0}
+            aria-label={localize('com_agents_marketplace')}
+            className="group relative flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm text-text-primary outline-none hover:bg-surface-active-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-black dark:focus-visible:ring-white"
+            onClick={handleAgentMarketplace}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleAgentMarketplace();
               }
-              return null;
-            })}
-          </>
+            }}
+            data-testid="nav-agents-marketplace-button"
+          >
+            <div className="flex flex-1 items-center truncate pr-6">
+              <div className="mr-2 h-5 w-5">
+                <LayoutGrid className="h-5 w-5 text-text-primary" />
+              </div>
+              <span className="truncate">{localize('com_agents_marketplace')}</span>
+            </div>
+          </div>
+        )}
+        {/* Favorite items - show skeletons while agents load */}
+        {isAgentsLoading ? (
+          safeFavorites.map((_, index) => (
+            <FavoriteItemSkeleton key={`skeleton-${index}`} />
+          ))
+        ) : (
+          safeFavorites.map((fav, index) => {
+            if (fav.agentId) {
+              const agent = combinedAgentsMap?.[fav.agentId];
+              if (!agent) {
+                return null;
+              }
+              return (
+                <DraggableFavoriteItem
+                  key={fav.agentId}
+                  id={fav.agentId}
+                  index={index}
+                  moveItem={moveItem}
+                  onDrop={handleDrop}
+                >
+                  <FavoriteItem
+                    item={agent}
+                    type="agent"
+                    onSelectEndpoint={onSelectEndpoint}
+                    onRemoveFocus={handleRemoveFocus}
+                  />
+                </DraggableFavoriteItem>
+              );
+            } else if (fav.model && fav.endpoint) {
+              return (
+                <DraggableFavoriteItem
+                  key={`${fav.endpoint}-${fav.model}`}
+                  id={`${fav.endpoint}-${fav.model}`}
+                  index={index}
+                  moveItem={moveItem}
+                  onDrop={handleDrop}
+                >
+                  <FavoriteItem
+                    item={{ model: fav.model, endpoint: fav.endpoint }}
+                    type="model"
+                    onSelectEndpoint={onSelectEndpoint}
+                    onRemoveFocus={handleRemoveFocus}
+                  />
+                </DraggableFavoriteItem>
+              );
+            }
+            return null;
+          })
         )}
       </div>
     </div>
