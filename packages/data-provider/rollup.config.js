@@ -15,7 +15,13 @@ const plugins = [
   commonjs(),
   typescript({
     tsconfig: './tsconfig.json',
-    useTsconfigDeclarationDir: true,
+    useTsconfigDeclarationDir: false,
+    tsconfigOverride: {
+      compilerOptions: {
+        declaration: false,
+        declarationDir: null,
+      },
+    },
   }),
   terser(),
 ];

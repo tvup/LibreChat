@@ -204,6 +204,7 @@ export type TUser = {
   plugins?: string[];
   twoFactorEnabled?: boolean;
   backupCodes?: TBackupCode[];
+  preferredName?: string;
   personalization?: {
     memories?: boolean;
   };

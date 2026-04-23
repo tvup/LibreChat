@@ -441,3 +441,57 @@ export const getAllEffectivePermissions = (resourceType: ResourceType) =>
 // SharePoint Graph API Token
 export const graphToken = (scopes: string) =>
   `${BASE_URL}/api/auth/graph-token?scopes=${encodeURIComponent(scopes)}`;
+
+/* Admin Panel */
+const adminRoot = `${BASE_URL}/api/admin`;
+export const adminDashboard = () => `${adminRoot}/dashboard`;
+export const adminUsers = (params?: Record<string, unknown>) =>
+  `${adminRoot}/users${params ? buildQuery(params) : ''}`;
+export const adminUserById = (id: string) => `${adminRoot}/users/${encodeURIComponent(id)}`;
+export const adminBanUser = (id: string) =>
+  `${adminRoot}/users/${encodeURIComponent(id)}/ban`;
+export const adminUnbanUser = (id: string) =>
+  `${adminRoot}/users/${encodeURIComponent(id)}/unban`;
+export const adminResetPassword = (id: string) =>
+  `${adminRoot}/users/${encodeURIComponent(id)}/reset-password`;
+export const adminUserBalance = (id: string) =>
+  `${adminRoot}/users/${encodeURIComponent(id)}/balance`;
+export const adminImpersonateUser = (id: string) =>
+  `${adminRoot}/users/${encodeURIComponent(id)}/impersonate`;
+export const adminImpersonateReturn = () => `${adminRoot}/impersonate/return`;
+export const adminSocialMappings = () => `${adminRoot}/social-mappings`;
+export const adminSocialMappingsForUser = (userId: string) =>
+  `${adminRoot}/social-mappings/user/${encodeURIComponent(userId)}`;
+export const adminSocialMappingById = (id: string) =>
+  `${adminRoot}/social-mappings/${encodeURIComponent(id)}`;
+export const adminBanners = () => `${adminRoot}/banners`;
+export const adminBannerById = (id: string) =>
+  `${adminRoot}/banners/${encodeURIComponent(id)}`;
+export const adminConversations = (params?: Record<string, unknown>) =>
+  `${adminRoot}/conversations${params ? buildQuery(params) : ''}`;
+export const adminConversationStats = () => `${adminRoot}/conversations/stats`;
+export const adminConversationById = (id: string) =>
+  `${adminRoot}/conversations/${encodeURIComponent(id)}`;
+export const adminFiles = (params?: Record<string, unknown>) =>
+  `${adminRoot}/files${params ? buildQuery(params) : ''}`;
+export const adminFileStats = () => `${adminRoot}/files/stats`;
+export const adminFileById = (id: string) => `${adminRoot}/files/${encodeURIComponent(id)}`;
+export const adminSessions = () => `${adminRoot}/sessions`;
+export const adminSessionsByUser = (userId: string) =>
+  `${adminRoot}/sessions/${encodeURIComponent(userId)}`;
+export const adminViolations = () => `${adminRoot}/logs/violations`;
+export const adminSystemInfo = () => `${adminRoot}/logs/system-info`;
+export const adminEndpointStats = () => `${adminRoot}/endpoints/stats`;
+export const adminMCPServers = () => `${adminRoot}/mcp`;
+export const adminMCPStats = () => `${adminRoot}/mcp/stats`;
+export const adminMCPReinitialize = (serverName: string) =>
+  `${adminRoot}/mcp/${encodeURIComponent(serverName)}/reinitialize`;
+export const adminTokenStats = () => `${adminRoot}/transactions/stats`;
+export const adminUsersExportCsv = () => `${adminRoot}/users/export/csv`;
+export const adminBulkBan = () => `${adminRoot}/users/bulk/ban`;
+export const adminBulkDelete = () => `${adminRoot}/users/bulk/delete`;
+export const adminBulkRole = () => `${adminRoot}/users/bulk/role`;
+export const adminInviteUser = () => `${adminRoot}/users/invite`;
+export const adminModels = () => `${adminRoot}/models`;
+export const adminToggleModel = () => `${adminRoot}/models/toggle`;
+export const adminBulkModels = () => `${adminRoot}/models/bulk`;

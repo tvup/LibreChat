@@ -1,5 +1,6 @@
 import type { AxiosResponse } from 'axios';
 import type * as t from './types';
+import type * as admin from './types/admin';
 import * as endpoints from './api-endpoints';
 import * as a from './types/assistants';
 import * as ag from './types/agents';
@@ -1092,4 +1093,217 @@ export interface ActiveJobsResponse {
 
 export const getActiveJobs = (): Promise<ActiveJobsResponse> => {
   return request.get(endpoints.activeJobs());
+};
+
+/* Admin Panel */
+
+export const getAdminDashboard = (): Promise<admin.AdminDashboardStats> => {
+  return request.get(endpoints.adminDashboard());
+};
+
+export const getAdminUsers = (
+  params?: admin.AdminUserListParams,
+): Promise<admin.AdminUserListResponse> => {
+  return request.get(endpoints.adminUsers(params as Record<string, unknown>));
+};
+
+export const getAdminUserById = (id: string): Promise<admin.AdminUserDetail> => {
+  return request.get(endpoints.adminUserById(id));
+};
+
+export const updateAdminUser = (
+  id: string,
+  data: admin.AdminUpdateUserRequest,
+): Promise<admin.AdminUserItem> => {
+  return request.put(endpoints.adminUserById(id), data);
+};
+
+export const deleteAdminUser = (id: string): Promise<{ message: string }> => {
+  return request.delete(endpoints.adminUserById(id));
+};
+
+export const banAdminUser = (
+  id: string,
+  data: admin.AdminBanUserRequest,
+): Promise<{ message: string }> => {
+  return request.post(endpoints.adminBanUser(id), data);
+};
+
+export const unbanAdminUser = (id: string): Promise<{ message: string }> => {
+  return request.post(endpoints.adminUnbanUser(id));
+};
+
+export const resetAdminUserPassword = (
+  id: string,
+  data: admin.AdminResetPasswordRequest,
+): Promise<{ message: string }> => {
+  return request.post(endpoints.adminResetPassword(id), data);
+};
+
+export const impersonateAdminUser = (id: string): Promise<{ token: string }> => {
+  return request.post(endpoints.adminImpersonateUser(id));
+};
+
+export const returnFromImpersonation = (): Promise<{ token: string }> => {
+  return request.post(endpoints.adminImpersonateReturn());
+};
+
+export const getAdminSocialMappings = (): Promise<admin.AdminSocialMapping[]> => {
+  return request.get(endpoints.adminSocialMappings());
+};
+
+export const getAdminSocialMappingsForUser = (
+  userId: string,
+): Promise<admin.AdminSocialMapping[]> => {
+  return request.get(endpoints.adminSocialMappingsForUser(userId));
+};
+
+export const createAdminSocialMapping = (
+  data: admin.AdminCreateSocialMappingRequest,
+): Promise<admin.AdminSocialMapping> => {
+  return request.post(endpoints.adminSocialMappings(), data);
+};
+
+export const deleteAdminSocialMapping = (id: string): Promise<{ message: string }> => {
+  return request.delete(endpoints.adminSocialMappingById(id));
+};
+
+export const setAdminUserBalance = (
+  id: string,
+  data: admin.AdminSetBalanceRequest,
+): Promise<{ balance: number }> => {
+  return request.post(endpoints.adminUserBalance(id), data);
+};
+
+export const getAdminBanners = (): Promise<admin.AdminBannerItem[]> => {
+  return request.get(endpoints.adminBanners());
+};
+
+export const createAdminBanner = (
+  data: admin.AdminCreateBannerRequest,
+): Promise<admin.AdminBannerItem> => {
+  return request.post(endpoints.adminBanners(), data);
+};
+
+export const updateAdminBanner = (
+  id: string,
+  data: admin.AdminUpdateBannerRequest,
+): Promise<admin.AdminBannerItem> => {
+  return request.put(endpoints.adminBannerById(id), data);
+};
+
+export const deleteAdminBanner = (id: string): Promise<{ message: string }> => {
+  return request.delete(endpoints.adminBannerById(id));
+};
+
+export const createAdminUser = (
+  data: admin.AdminCreateUserRequest,
+): Promise<admin.AdminUserItem> => {
+  return request.post(endpoints.adminUsers(), data);
+};
+
+export const getAdminConversations = (
+  params?: Record<string, unknown>,
+): Promise<admin.AdminConversationListResponse> => {
+  return request.get(endpoints.adminConversations(params));
+};
+
+export const getAdminConversationStats = (): Promise<admin.AdminConversationStats> => {
+  return request.get(endpoints.adminConversationStats());
+};
+
+export const deleteAdminConversation = (id: string): Promise<{ message: string }> => {
+  return request.delete(endpoints.adminConversationById(id));
+};
+
+export const getAdminFiles = (
+  params?: Record<string, unknown>,
+): Promise<admin.AdminFileListResponse> => {
+  return request.get(endpoints.adminFiles(params));
+};
+
+export const getAdminFileStats = (): Promise<admin.AdminFileStats> => {
+  return request.get(endpoints.adminFileStats());
+};
+
+export const deleteAdminFile = (fileId: string): Promise<{ message: string }> => {
+  return request.delete(endpoints.adminFileById(fileId));
+};
+
+export const getAdminSessions = (): Promise<admin.AdminActiveSession[]> => {
+  return request.get(endpoints.adminSessions());
+};
+
+export const revokeAdminUserSessions = (userId: string): Promise<{ message: string }> => {
+  return request.delete(endpoints.adminSessionsByUser(userId));
+};
+
+export const getAdminViolations = (): Promise<admin.AdminViolationSummary[]> => {
+  return request.get(endpoints.adminViolations());
+};
+
+export const getAdminSystemInfo = (): Promise<admin.AdminSystemInfo> => {
+  return request.get(endpoints.adminSystemInfo());
+};
+
+export const getAdminEndpointStats = (): Promise<admin.AdminEndpointStats> => {
+  return request.get(endpoints.adminEndpointStats());
+};
+
+export const getAdminMCPServers = (): Promise<admin.AdminMCPServer[]> => {
+  return request.get(endpoints.adminMCPServers());
+};
+
+export const getAdminMCPStats = (): Promise<admin.AdminMCPStats> => {
+  return request.get(endpoints.adminMCPStats());
+};
+
+export const reinitializeAdminMCPServer = (
+  serverName: string,
+): Promise<{ message: string }> => {
+  return request.post(endpoints.adminMCPReinitialize(serverName));
+};
+
+export const getAdminTokenStats = (): Promise<admin.AdminTokenStats> => {
+  return request.get(endpoints.adminTokenStats());
+};
+
+export const bulkBanAdminUsers = (
+  data: admin.AdminBulkBanRequest,
+): Promise<{ message: string }> => {
+  return request.post(endpoints.adminBulkBan(), data);
+};
+
+export const bulkDeleteAdminUsers = (
+  data: admin.AdminBulkActionRequest,
+): Promise<{ message: string }> => {
+  return request.post(endpoints.adminBulkDelete(), data);
+};
+
+export const bulkRoleAdminUsers = (
+  data: admin.AdminBulkRoleRequest,
+): Promise<{ message: string }> => {
+  return request.post(endpoints.adminBulkRole(), data);
+};
+
+export const inviteAdminUser = (
+  data: admin.AdminInviteUserRequest,
+): Promise<admin.AdminInviteUserResponse> => {
+  return request.post(endpoints.adminInviteUser(), data);
+};
+
+export const getAdminModels = (): Promise<admin.AdminModelsConfig> => {
+  return request.get(endpoints.adminModels());
+};
+
+export const toggleAdminModel = (
+  data: admin.AdminToggleModelRequest,
+): Promise<admin.AdminToggleModelResponse> => {
+  return request.post(endpoints.adminToggleModel(), data);
+};
+
+export const bulkAdminModels = (
+  data: admin.AdminBulkModelRequest,
+): Promise<admin.AdminToggleModelResponse> => {
+  return request.post(endpoints.adminBulkModels(), data);
 };
