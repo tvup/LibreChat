@@ -120,6 +120,10 @@ const userSchema = new Schema<IUser>(
       type: Date,
       expires: 604800, // 7 days in seconds
     },
+    preferredName: {
+      type: String,
+      default: '',
+    },
     termsAccepted: {
       type: Boolean,
       default: false,

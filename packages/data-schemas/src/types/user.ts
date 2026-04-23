@@ -37,6 +37,7 @@ export interface IUser extends Document {
     refreshToken: string;
   }>;
   expiresAt?: Date;
+  preferredName?: string;
   termsAccepted?: boolean;
   personalization?: {
     memories?: boolean;
@@ -84,6 +85,7 @@ export interface UpdateUserRequest {
   avatar?: string;
   plugins?: string[];
   twoFactorEnabled?: boolean;
+  preferredName?: string;
   termsAccepted?: boolean;
   personalization?: {
     memories?: boolean;

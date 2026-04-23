@@ -1,5 +1,7 @@
 import React from 'react';
 import DisplayUsernameMessages from './DisplayUsernameMessages';
+import PreferredName from './PreferredName';
+import LinkedAccounts from './LinkedAccounts';
 import DeleteAccount from './DeleteAccount';
 import Avatar from './Avatar';
 import EnableTwoFactorItem from './TwoFactorAuthentication';
@@ -16,6 +18,12 @@ function Account() {
       </div>
       <div className="pb-3">
         <Avatar />
+      </div>
+      <div className="pb-3">
+        <PreferredName />
+      </div>
+      <div className="pb-3">
+        <LinkedAccounts />
       </div>
       {user?.provider === 'local' && (
         <>
