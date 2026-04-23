@@ -53,6 +53,8 @@ export * from './cache';
 export * from './stream';
 /* Diagnostics */
 export { memoryDiagnostics } from './utils/memory';
+/* Admin */
+export * from './admin';
 /* types */
 export type * from './mcp/types';
 export type * from './flow/types';
