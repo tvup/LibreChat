@@ -107,15 +107,7 @@ export default function StreamAudio({ index = 0 }) {
         }
 
         const reader = response.body.getReader();
-
         const type = 'audio/mpeg';
-        const browserSupportsType =
-          typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type);
-        let mediaSource: MediaSourceAppender | undefined;
-        if (browserSupportsType) {
-          mediaSource = new MediaSourceAppender(type);
-          setGlobalAudioURL(mediaSource.mediaSourceUrl);
-        }
 
         let done = false;
         const chunks: ArrayBuffer[] = [];
@@ -127,36 +119,28 @@ export default function StreamAudio({ index = 0 }) {
             timeoutPromise(maxPromiseTime, promiseTimeoutMessage),
           ])) as ReadableStreamReadResult<ArrayBuffer>;
 
-          if (cacheTTS && value) {
+          if (value) {
             chunks.push(value);
-          }
-          if (value && mediaSource) {
-            mediaSource.addData(value);
           }
           done = readerDone;
         }
 
         if (chunks.length) {
-          logger.log('Adding audio to cache');
-          const latestMessages = getMessages() ?? [];
-          const targetMessage = latestMessages.find(
-            (msg) => msg.messageId === latestMessage?.messageId,
-          );
-          cacheKey = targetMessage?.text ?? '';
-          if (!cacheKey) {
-            throw new Error('Cache key not found');
-          }
           const audioBlob = new Blob(chunks, { type });
-          const cachedResponse = new Response(audioBlob);
-          await cache.put(cacheKey, cachedResponse);
-          if (!browserSupportsType) {
-            const unconsumedResponse = await cache.match(cacheKey);
-            if (!unconsumedResponse) {
-              throw new Error('Failed to fetch audio from cache');
+          const blobUrl = URL.createObjectURL(audioBlob);
+          setGlobalAudioURL(blobUrl);
+
+          if (cacheTTS) {
+            logger.log('Adding audio to cache');
+            const latestMessages = getMessages() ?? [];
+            const targetMessage = latestMessages.find(
+              (msg) => msg.messageId === latestMessage?.messageId,
+            );
+            cacheKey = targetMessage?.text ?? '';
+            if (cacheKey) {
+              const cachedResponse = new Response(audioBlob.slice());
+              await cache.put(cacheKey, cachedResponse);
             }
-            const audioBlob = await unconsumedResponse.blob();
-            const blobUrl = URL.createObjectURL(audioBlob);
-            setGlobalAudioURL(blobUrl);
           }
           setIsFetching(false);
         }
