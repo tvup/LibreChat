@@ -1,15 +1,19 @@
 import { useState, memo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import * as Menu from '@ariakit/react/menu';
-import { FileText, LogOut } from 'lucide-react';
+import { SystemRoles } from 'librechat-data-provider';
+import { FileText, LogOut, ShieldEllipsis } from 'lucide-react';
 import { LinkIcon, GearIcon, DropdownMenuSeparator, Avatar } from '@librechat/client';
 import { MyFilesModal } from '~/components/Chat/Input/Files/MyFilesModal';
 import { useGetStartupConfig, useGetUserBalance } from '~/data-provider';
+import HighlightedName from '~/components/ui/HighlightedName';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { useLocalize } from '~/hooks';
 import Settings from './Settings';
 
 function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
   const localize = useLocalize();
+  const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuthContext();
   const { data: startupConfig } = useGetStartupConfig();
   const balanceQuery = useGetUserBalance({
@@ -38,14 +42,15 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
             <Avatar user={user} size={collapsed ? 28 : 32} />
           </div>
         </div>
-        {!collapsed && (
-          <div
-            className="mt-2 grow overflow-hidden text-ellipsis whitespace-nowrap text-left text-text-primary"
-            style={{ marginTop: '0', marginLeft: '0' }}
-          >
-            {user?.name ?? user?.username ?? localize('com_nav_user')}
-          </div>
-        )}
+        <div
+          className="mt-2 grow overflow-hidden text-ellipsis whitespace-nowrap text-left text-text-primary"
+          style={{ marginTop: '0', marginLeft: '0' }}
+        >
+          <HighlightedName
+            name={user?.name ?? user?.username ?? localize('com_nav_user')}
+            preferredName={user?.preferredName}
+          />
+        </div>
       </Menu.MenuButton>
       <Menu.Menu
         portal
@@ -86,6 +91,12 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           <GearIcon className="icon-md" aria-hidden="true" />
           {localize('com_nav_settings')}
         </Menu.MenuItem>
+        {user?.role === SystemRoles.ADMIN && (
+          <Menu.MenuItem onClick={() => navigate('/admin')} className="select-item text-sm">
+            <ShieldEllipsis className="icon-md" aria-hidden="true" />
+            {localize('com_admin_panel')}
+          </Menu.MenuItem>
+        )}
         <DropdownMenuSeparator />
         <Menu.MenuItem onClick={() => logout()} className="select-item text-sm">
           <LogOut className="icon-md" aria-hidden="true" />
