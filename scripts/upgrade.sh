@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 #
-# Upgrade this fork by merging the latest upstream changes and rebuilding
-# everything that docker-compose.yml bind-mounts from the working tree.
+# Upgrade this fork by merging the latest upstream changes directly into
+# tvup/master and rebuilding everything that docker-compose.yml bind-mounts
+# from the working tree.
 #
-#   upstream  →  main  →  tvup/master  →  rebuild dist  →  docker pull + up
+#   upstream/main  →  tvup/master  →  rebuild dist  →  docker pull + up
 #
 # Safety: exits immediately on any error, refuses to run with a dirty tree,
 # and stops at merge conflicts so you can resolve them by hand.
+#
+# Note: this script does NOT try to keep local `main` in sync — it merges
+# upstream/main straight into tvup/master, sidestepping divergence on main.
 
 set -euo pipefail
 
@@ -29,14 +33,9 @@ log "Fetching $UPSTREAM_REMOTE and $ORIGIN_REMOTE"
 git fetch "$UPSTREAM_REMOTE"
 git fetch "$ORIGIN_REMOTE"
 
-log "Fast-forwarding main to $UPSTREAM_REMOTE/$UPSTREAM_BRANCH"
-git checkout main
-git merge --ff-only "$UPSTREAM_REMOTE/$UPSTREAM_BRANCH"
-git push "$ORIGIN_REMOTE" main
-
-log "Merging main into $FEATURE_BRANCH"
+log "Merging $UPSTREAM_REMOTE/$UPSTREAM_BRANCH into $FEATURE_BRANCH"
 git checkout "$FEATURE_BRANCH"
-if ! git merge --no-edit main; then
+if ! git merge --no-edit "$UPSTREAM_REMOTE/$UPSTREAM_BRANCH"; then
   die "Merge conflict. Resolve, 'git commit', then re-run this script."
 fi
 
