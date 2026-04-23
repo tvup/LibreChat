@@ -117,25 +117,15 @@ router.get('/', async function (req, res) {
 
     if (!req.user) {
       const tenantId = getTenantId();
-      const baseConfig = await getAppConfig(tenantId ? { tenantId } : { baseOnly: true });
+      const baseConfig = await getAppConfig(tenantId ? { tenantId } : {});
 
       /** @type {Partial<TStartupConfig>} */
       const payload = {
         ...sharedPayload,
         socialLogins: baseConfig?.registration?.socialLogins ?? defaultSocialLogins,
         turnstile: baseConfig?.turnstileConfig,
+        interface: baseConfig?.interfaceConfig,
       };
-
-      const interfaceConfig = baseConfig?.interfaceConfig;
-      if (interfaceConfig?.privacyPolicy || interfaceConfig?.termsOfService) {
-        payload.interface = {};
-        if (interfaceConfig.privacyPolicy) {
-          payload.interface.privacyPolicy = interfaceConfig.privacyPolicy;
-        }
-        if (interfaceConfig.termsOfService) {
-          payload.interface.termsOfService = interfaceConfig.termsOfService;
-        }
-      }
 
       return res.status(200).send(payload);
     }

@@ -152,13 +152,8 @@ const startServer = async () => {
    * The reverse proxy / auth gateway sets `X-Tenant-Id` header for multi-tenant deployments. */
   app.use('/oauth', preAuthTenantMiddleware, routes.oauth);
   /* API Endpoints */
-  app.use('/api/auth', preAuthTenantMiddleware, routes.auth);
-  app.use('/api/admin', routes.adminAuth);
-  app.use('/api/admin/config', routes.adminConfig);
-  app.use('/api/admin/grants', routes.adminGrants);
-  app.use('/api/admin/groups', routes.adminGroups);
-  app.use('/api/admin/roles', routes.adminRoles);
-  app.use('/api/admin/users', routes.adminUsers);
+  app.use('/api/auth', routes.auth);
+  app.use('/api/admin', routes.admin);
   app.use('/api/actions', routes.actions);
   app.use('/api/keys', routes.keys);
   app.use('/api/api-keys', routes.apiKeys);
@@ -188,6 +183,14 @@ const startServer = async () => {
 
   /** 404 for unmatched API routes */
   app.use('/api', apiNotFound);
+
+  /** Static pages */
+  app.get('/terms', (_req, res) => {
+    res.sendFile(path.join(appConfig.paths.dist, '..', 'public', 'pages', 'terms.html'));
+  });
+  app.get('/privacy', (_req, res) => {
+    res.sendFile(path.join(appConfig.paths.dist, '..', 'public', 'pages', 'privacy.html'));
+  });
 
   /** SPA fallback - serve index.html for all unmatched routes */
   app.use((req, res) => {
