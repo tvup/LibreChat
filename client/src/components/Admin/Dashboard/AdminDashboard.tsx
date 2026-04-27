@@ -46,6 +46,7 @@ function RecentRegistrations({
   loading: boolean;
   label: string;
 }) {
+  const localize = useLocalize();
   return (
     <div className="rounded-xl border border-border-light bg-surface-secondary p-6">
       <h2 className="mb-4 text-base font-semibold text-text-primary">{label}</h2>
@@ -56,16 +57,26 @@ function RecentRegistrations({
           ))}
         </div>
       ) : users.length === 0 ? (
-        <p className="text-sm text-text-secondary">No recent registrations</p>
+        <p className="text-sm text-text-secondary">
+          {localize('com_admin_no_recent_registrations')}
+        </p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border-light">
-                <th className="pb-2 text-left font-medium text-text-secondary">Name</th>
-                <th className="pb-2 text-left font-medium text-text-secondary">Registered</th>
-                <th className="pb-2 text-left font-medium text-text-secondary">Last Active</th>
-                <th className="pb-2 text-right font-medium text-text-secondary">Messages</th>
+                <th className="pb-2 text-left font-medium text-text-secondary">
+                  {localize('com_admin_user_name')}
+                </th>
+                <th className="pb-2 text-left font-medium text-text-secondary">
+                  {localize('com_admin_registered_at')}
+                </th>
+                <th className="pb-2 text-left font-medium text-text-secondary">
+                  {localize('com_admin_last_active')}
+                </th>
+                <th className="pb-2 text-right font-medium text-text-secondary">
+                  {localize('com_admin_messages')}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -83,7 +94,7 @@ function RecentRegistrations({
                   <td className="py-2 pr-3 text-xs text-text-secondary">
                     {user.lastActive
                       ? new Date(user.lastActive).toLocaleDateString()
-                      : 'Never'}
+                      : localize('com_admin_never')}
                   </td>
                   <td className="py-2 text-right text-xs font-medium text-text-primary">
                     {(user.messageCount ?? 0).toLocaleString()}
