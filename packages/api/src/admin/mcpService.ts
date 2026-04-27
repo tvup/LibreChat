@@ -1,6 +1,9 @@
 import mongoose from 'mongoose';
 
 import type { MCPOptions } from 'librechat-data-provider';
+import { MCPServersRegistry } from '~/mcp/registry/MCPServersRegistry';
+
+export type MCPServerSource = 'db' | 'yaml';
 
 export interface MCPServerResult {
   _id: string;
@@ -8,6 +11,7 @@ export interface MCPServerResult {
   url?: string;
   type?: string;
   tools?: string[];
+  source: MCPServerSource;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -16,6 +20,15 @@ export interface MCPStatsResult {
   totalServers: number;
   serversByType: Array<{ type: string; count: number }>;
 }
+
+/**
+ * MCP servers defined statically in `librechat.yaml` are not stored in the
+ * database — they live in `appConfig.mcpConfig`. To surface them in admin
+ * views alongside DB-managed servers, callers should pass the yaml config
+ * map; entries are merged with `source: 'yaml'`. DB entries always win on
+ * name collision, mirroring runtime override semantics.
+ */
+type YamlMCPMap = Record<string, MCPOptions> | null | undefined;
 
 function getServerType(config: MCPOptions): string {
   if ('command' in config) {
@@ -41,24 +54,22 @@ function getServerUrl(config: MCPOptions): string | undefined {
   return undefined;
 }
 
-export async function listMCPServers(): Promise<MCPServerResult[]> {
+export async function listMCPServers(yamlConfig?: YamlMCPMap): Promise<MCPServerResult[]> {
   const MCPServer = mongoose.models.MCPServer;
-  if (!MCPServer) {
-    return [];
-  }
+  const dbServers = MCPServer
+    ? ((await MCPServer.find()
+        .sort({ updatedAt: -1 })
+        .lean()
+        .exec()) as unknown as Array<{
+        _id: string;
+        serverName: string;
+        config: MCPOptions & { tools?: Array<{ name: string }> };
+        createdAt?: string;
+        updatedAt?: string;
+      }>)
+    : [];
 
-  const servers = await MCPServer.find()
-    .sort({ updatedAt: -1 })
-    .lean()
-    .exec() as unknown as Array<{
-    _id: string;
-    serverName: string;
-    config: MCPOptions & { tools?: Array<{ name: string }> };
-    createdAt?: string;
-    updatedAt?: string;
-  }>;
-
-  return servers.map((server) => {
+  const dbResults: MCPServerResult[] = dbServers.map((server) => {
     const config = server.config;
     const tools: string[] = [];
     if (config && Array.isArray(config.tools)) {
@@ -68,33 +79,94 @@ export async function listMCPServers(): Promise<MCPServerResult[]> {
         }
       }
     }
-
     return {
       _id: String(server._id),
       name: server.serverName,
       url: getServerUrl(config),
       type: getServerType(config),
       tools,
+      source: 'db',
       createdAt: server.createdAt,
       updatedAt: server.updatedAt,
     };
   });
-}
 
-export async function getMCPServerStats(): Promise<MCPStatsResult> {
-  const MCPServer = mongoose.models.MCPServer;
-  if (!MCPServer) {
-    return { totalServers: 0, serversByType: [] };
+  if (!yamlConfig) {
+    return dbResults;
   }
 
-  const servers = await MCPServer.find()
-    .lean()
-    .exec() as unknown as Array<{ config: MCPOptions }>;
+  // Pull live tool lists from the registry so admin sees what each YAML
+  // server actually exposes after inspection.  Falls back to empty when
+  // the registry hasn't initialized yet (e.g. early in api startup).
+  const registryConfigs = await getRegistryConfigsSafe();
+
+  const dbNames = new Set(dbResults.map((s) => s.name));
+  const yamlResults: MCPServerResult[] = [];
+  for (const [name, config] of Object.entries(yamlConfig)) {
+    if (dbNames.has(name)) {
+      continue;
+    }
+    const liveTools = parseRegistryTools(registryConfigs[name]?.tools);
+    yamlResults.push({
+      _id: `yaml:${name}`,
+      name,
+      url: getServerUrl(config),
+      type: getServerType(config),
+      tools: liveTools,
+      source: 'yaml',
+    });
+  }
+
+  return [...dbResults, ...yamlResults];
+}
+
+async function getRegistryConfigsSafe(): Promise<Record<string, { tools?: string }>> {
+  try {
+    const registry = MCPServersRegistry.getInstance();
+    return (await registry.getAllServerConfigs()) as unknown as Record<string, { tools?: string }>;
+  } catch {
+    return {};
+  }
+}
+
+function parseRegistryTools(toolsField?: string): string[] {
+  if (!toolsField) {
+    return [];
+  }
+  return toolsField
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+}
+
+export async function getMCPServerStats(yamlConfig?: YamlMCPMap): Promise<MCPStatsResult> {
+  const MCPServer = mongoose.models.MCPServer;
+  const dbServers = MCPServer
+    ? ((await MCPServer.find().lean().exec()) as unknown as Array<{
+        serverName: string;
+        config: MCPOptions;
+      }>)
+    : [];
 
   const typeCounts = new Map<string, number>();
-  for (const server of servers) {
+  const seenNames = new Set<string>();
+
+  for (const server of dbServers) {
+    seenNames.add(server.serverName);
     const type = getServerType(server.config);
     typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+  }
+
+  let totalServers = dbServers.length;
+  if (yamlConfig) {
+    for (const [name, config] of Object.entries(yamlConfig)) {
+      if (seenNames.has(name)) {
+        continue;
+      }
+      totalServers += 1;
+      const type = getServerType(config);
+      typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+    }
   }
 
   const serversByType: Array<{ type: string; count: number }> = [];
@@ -104,7 +176,7 @@ export async function getMCPServerStats(): Promise<MCPStatsResult> {
   serversByType.sort((a, b) => b.count - a.count);
 
   return {
-    totalServers: servers.length,
+    totalServers,
     serversByType,
   };
 }
