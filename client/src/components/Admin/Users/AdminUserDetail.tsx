@@ -17,7 +17,17 @@ import {
   User,
   Activity,
   LogIn,
+  Server,
 } from 'lucide-react';
+import {
+  GoogleIcon,
+  FacebookIcon,
+  OpenIDIcon,
+  GithubIcon,
+  DiscordIcon,
+  AppleIcon,
+  SamlIcon,
+} from '@librechat/client';
 import { useImpersonate } from '~/components/Admin/useImpersonate';
 import { ImageThumbnail, isImageType } from '~/components/Admin/ImagePreview';
 
@@ -186,14 +196,14 @@ export default function AdminUserDetail() {
   ];
 
   const providerIds = [
-    { key: 'googleId', label: 'Google' },
-    { key: 'openidId', label: 'OpenID' },
-    { key: 'githubId', label: 'GitHub' },
-    { key: 'discordId', label: 'Discord' },
-    { key: 'appleId', label: 'Apple' },
-    { key: 'facebookId', label: 'Facebook' },
-    { key: 'samlId', label: 'SAML' },
-    { key: 'ldapId', label: 'LDAP' },
+    { key: 'googleId', label: 'Google', Icon: GoogleIcon },
+    { key: 'openidId', label: 'OpenID', Icon: OpenIDIcon },
+    { key: 'githubId', label: 'GitHub', Icon: GithubIcon },
+    { key: 'discordId', label: 'Discord', Icon: DiscordIcon },
+    { key: 'appleId', label: 'Apple', Icon: AppleIcon },
+    { key: 'facebookId', label: 'Facebook', Icon: FacebookIcon },
+    { key: 'samlId', label: 'SAML', Icon: SamlIcon },
+    { key: 'ldapId', label: 'LDAP', Icon: Server },
   ] as const;
 
   return (
@@ -675,7 +685,7 @@ function UserActivityTab({
   providerIds,
 }: {
   user: AdminUserDetailType;
-  providerIds: ReadonlyArray<{ key: string; label: string }>;
+  providerIds: ReadonlyArray<{ key: string; label: string; Icon: React.ComponentType<{ className?: string }> }>;
 }) {
   const localize = useLocalize();
 
@@ -691,10 +701,13 @@ function UserActivityTab({
             {localize('com_admin_provider_ids')}
           </h3>
           <div className="space-y-2">
-            {activeProviderIds.map(({ key, label }) => (
-              <div key={key} className="flex items-center justify-between text-sm">
-                <span className="text-text-secondary">{label}</span>
-                <span className="font-mono text-xs text-text-primary">
+            {activeProviderIds.map(({ key, label, Icon }) => (
+              <div key={key} className="flex items-center justify-between gap-3 text-sm">
+                <span className="flex items-center gap-2 text-text-secondary">
+                  <Icon className="size-4 shrink-0" />
+                  {label}
+                </span>
+                <span className="truncate font-mono text-xs text-text-primary">
                   {String(user[key as keyof typeof user])}
                 </span>
               </div>
