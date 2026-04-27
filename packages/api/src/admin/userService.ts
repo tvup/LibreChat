@@ -4,76 +4,22 @@ import { logger } from '@librechat/data-schemas';
 import type {
   AdminUserItem,
   AdminUserDetail,
-  AdminUserListParams,
-  AdminUserListResponse,
   AdminUpdateUserRequest,
   AdminSetBalanceRequest,
 } from 'librechat-data-provider';
+
+/**
+ * NB: listUsers + searchUsers er flyttet til upstream's createAdminUsersHandlers
+ * (mountet direkte i api/server/routes/admin/users.js). Forken's egne
+ * detail/update/delete/balance/reset-password-funktioner forbliver her —
+ * upstream har ikke pendant for dem endnu.
+ */
 
 const SAFE_USER_FIELDS =
   '_id name username email role provider avatar emailVerified twoFactorEnabled createdAt updatedAt';
 
 const DETAIL_USER_FIELDS =
   `${SAFE_USER_FIELDS} googleId openidId githubId discordId appleId facebookId samlId ldapId plugins favorites termsAccepted personalization`;
-
-export async function listUsers(params: AdminUserListParams): Promise<AdminUserListResponse> {
-  const User = mongoose.models.User;
-  const {
-    search,
-    role,
-    provider,
-    limit = 25,
-    cursor,
-    sortBy = 'createdAt',
-    sortOrder = 'desc',
-  } = params;
-
-  const filter: Record<string, unknown> = {};
-
-  if (search) {
-    const regex = new RegExp(search, 'i');
-    filter.$or = [{ email: regex }, { name: regex }, { username: regex }];
-  }
-
-  if (role) {
-    filter.role = role;
-  }
-
-  if (provider) {
-    filter.provider = provider;
-  }
-
-  if (cursor) {
-    const direction = sortOrder === 'desc' ? '$lt' : '$gt';
-    filter._id = { [direction]: cursor };
-  }
-
-  const sortDirection = sortOrder === 'desc' ? -1 : 1;
-
-  const [users, totalCount] = await Promise.all([
-    User.find(filter)
-      .select(SAFE_USER_FIELDS)
-      .sort({ [sortBy]: sortDirection, _id: sortDirection })
-      .limit(limit + 1)
-      .lean()
-      .exec() as unknown as Promise<AdminUserItem[]>,
-    User.countDocuments(cursor ? {} : filter),
-  ]);
-
-  const hasNextPage = users.length > limit;
-  const data = hasNextPage ? users.slice(0, limit) : users;
-  const lastItem = data[data.length - 1];
-
-  return {
-    data,
-    pagination: {
-      hasNextPage,
-      hasPreviousPage: !!cursor,
-      nextCursor: hasNextPage && lastItem ? String(lastItem._id) : undefined,
-      totalCount,
-    },
-  };
-}
 
 export async function getUserDetail(userId: string): Promise<AdminUserDetail | null> {
   const User = mongoose.models.User;

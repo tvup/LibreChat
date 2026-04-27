@@ -1,8 +1,27 @@
 const express = require('express');
 const crypto = require('crypto');
-const { adminUserService } = require('@librechat/api');
+const { adminUserService, createAdminUsersHandlers } = require('@librechat/api');
+const { SystemCapabilities } = require('@librechat/data-schemas');
+const { requireCapability } = require('~/server/middleware/roles/capabilities');
+const db = require('~/models');
 
 const router = express.Router();
+
+const requireReadUsers = requireCapability(SystemCapabilities.READ_USERS);
+
+/**
+ * Upstream's listUsers/searchUsers — bruger offset-pagination og returnerer
+ * { users, total, limit, offset } istedet for forken's tidligere cursor-shape.
+ * Forken's egne write-endpoints (ban/balance/impersonate/...) ligger fortsat
+ * herunder.
+ */
+const upstreamHandlers = createAdminUsersHandlers({
+  findUsers: db.findUsers,
+  countUsers: db.countUsers,
+  deleteUserById: db.deleteUserById,
+  deleteConfig: db.deleteConfig,
+  deleteAclEntries: db.deleteAclEntries,
+});
 
 const SAFE_USER_FIELDS =
   '_id name username email role provider avatar emailVerified twoFactorEnabled createdAt updatedAt';
@@ -190,23 +209,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.get('/', async (req, res) => {
-  try {
-    const params = {
-      search: req.query.search,
-      role: req.query.role,
-      provider: req.query.provider,
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
-      cursor: req.query.cursor,
-      sortBy: req.query.sortBy,
-      sortOrder: req.query.sortOrder,
-    };
-    const result = await adminUserService.listUsers(params);
-    res.status(200).json(result);
-  } catch (error) {
-    res.status(500).json({ message: 'Error listing users' });
-  }
-});
+router.get('/', requireReadUsers, upstreamHandlers.listUsers);
+router.get('/search', requireReadUsers, upstreamHandlers.searchUsers);
 
 router.get('/:userId', async (req, res) => {
   try {
