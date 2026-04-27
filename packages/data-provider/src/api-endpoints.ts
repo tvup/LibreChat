@@ -359,6 +359,9 @@ export const getCategories = () => `${BASE_URL}/api/categories`;
 
 export const getAllPromptGroups = () => `${prompts()}/all`;
 
+/* Capabilities (upstream /api/admin/grants/effective) */
+export const adminGrantsEffective = () => `${BASE_URL}/api/admin/grants/effective`;
+
 /* Roles — capability-gated /api/admin/roles (legacy /api/roles fjernet) */
 export const adminRoles = () => `${BASE_URL}/api/admin/roles`;
 export const getRole = (roleName: string) => `${adminRoles()}/${encodeURIComponent(roleName)}`;

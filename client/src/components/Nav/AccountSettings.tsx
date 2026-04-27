@@ -1,18 +1,20 @@
 import { useState, memo, useRef } from 'react';
 import * as Menu from '@ariakit/react/menu';
-import { SystemRoles } from 'librechat-data-provider';
 import { FileText, LogOut, ShieldEllipsis } from 'lucide-react';
 import { LinkIcon, GearIcon, DropdownMenuSeparator, Avatar } from '@librechat/client';
 import { MyFilesModal } from '~/components/Chat/Input/Files/MyFilesModal';
-import { useGetStartupConfig, useGetUserBalance } from '~/data-provider';
+import { useGetStartupConfig, useGetUserBalance, useHasCapability } from '~/data-provider';
 import HighlightedName from '~/components/ui/HighlightedName';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { useLocalize } from '~/hooks';
 import Settings from './Settings';
 
+const ACCESS_ADMIN = 'access:admin';
+
 function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
   const localize = useLocalize();
   const { user, isAuthenticated, logout } = useAuthContext();
+  const canAccessAdmin = useHasCapability(ACCESS_ADMIN);
   const { data: startupConfig } = useGetStartupConfig();
   const balanceQuery = useGetUserBalance({
     enabled: !!isAuthenticated && startupConfig?.balance?.enabled,
@@ -89,7 +91,7 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           <GearIcon className="icon-md" aria-hidden="true" />
           {localize('com_nav_settings')}
         </Menu.MenuItem>
-        {user?.role === SystemRoles.ADMIN && (
+        {canAccessAdmin && (
           <Menu.MenuItem
             onClick={() => {
               window.location.href = '/admin/';

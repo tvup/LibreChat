@@ -860,6 +860,11 @@ export function getRandomPrompts(
   return request.get(endpoints.getRandomPrompts(variables.limit, variables.skip));
 }
 
+/* Capabilities */
+export function getEffectiveCapabilities(): Promise<{ capabilities: string[] }> {
+  return request.get(endpoints.adminGrantsEffective());
+}
+
 /* Roles — peger på /api/admin/roles (capability-gated) */
 export function listRoles(): Promise<q.ListRolesResponse> {
   return request.get(`${endpoints.adminRoles()}?limit=200`);
