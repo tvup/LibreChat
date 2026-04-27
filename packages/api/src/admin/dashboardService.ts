@@ -3,6 +3,90 @@ import { ViolationTypes } from 'librechat-data-provider';
 
 import type { AdminDashboardStats, AdminDashboardRecentUser } from 'librechat-data-provider';
 
+/**
+ * Counts unique users per auth provider, attributing each user to every
+ * provider they actually authenticate with — not just their primary
+ * `provider` field.  A user can have any combination of:
+ *   - `provider: 'local'` (created via email/password)
+ *   - `<x>Id` fields (googleId, discordId, …) populated when they linked an
+ *     OAuth account; passport-strategies set these on first social login.
+ *   - SocialMapping rows that route an OAuth identity to a different local
+ *     account (admin-managed cross-provider login).
+ *
+ * Each of these contributes the user to the corresponding provider bucket.
+ * Totals can therefore sum to more than the user count, which mirrors
+ * reality: one user, multiple login paths.
+ */
+const OAUTH_ID_FIELDS = [
+  ['googleId', 'google'],
+  ['discordId', 'discord'],
+  ['facebookId', 'facebook'],
+  ['githubId', 'github'],
+  ['appleId', 'apple'],
+  ['openidId', 'openid'],
+  ['samlId', 'saml'],
+  ['ldapId', 'ldap'],
+] as const;
+
+type UserProviderRow = {
+  _id: mongoose.Types.ObjectId;
+  provider?: string;
+} & Partial<Record<(typeof OAUTH_ID_FIELDS)[number][0], string>>;
+
+async function aggregateAuthProviders(
+  User: mongoose.Model<unknown>,
+): Promise<Array<{ provider: string; count: number }>> {
+  const SocialMapping = mongoose.models.SocialMapping;
+
+  const projection: Record<string, 1> = { provider: 1 };
+  for (const [field] of OAUTH_ID_FIELDS) {
+    projection[field] = 1;
+  }
+
+  const [users, mappings] = await Promise.all([
+    User.find({}, projection).lean().exec() as unknown as Promise<UserProviderRow[]>,
+    SocialMapping
+      ? (SocialMapping.find({}, { targetUserId: 1, provider: 1 })
+          .lean()
+          .exec() as unknown as Promise<
+          Array<{ targetUserId: mongoose.Types.ObjectId; provider: string }>
+        >)
+      : Promise.resolve([] as Array<{ targetUserId: mongoose.Types.ObjectId; provider: string }>),
+  ]);
+
+  const userToProviders = new Map<string, Set<string>>();
+  for (const u of users) {
+    const set = new Set<string>();
+    if (u.provider) {
+      set.add(u.provider);
+    }
+    for (const [field, provider] of OAUTH_ID_FIELDS) {
+      if (u[field]) {
+        set.add(provider);
+      }
+    }
+    userToProviders.set(String(u._id), set);
+  }
+  for (const m of mappings) {
+    const key = String(m.targetUserId);
+    const set = userToProviders.get(key);
+    if (set) {
+      set.add(m.provider);
+    }
+  }
+
+  const counts = new Map<string, number>();
+  for (const set of userToProviders.values()) {
+    for (const provider of set) {
+      counts.set(provider, (counts.get(provider) ?? 0) + 1);
+    }
+  }
+
+  return Array.from(counts, ([provider, count]) => ({ provider, count })).sort(
+    (a, b) => b.count - a.count,
+  );
+}
+
 export async function getDashboardStats(): Promise<AdminDashboardStats> {
   const User = mongoose.models.User;
   const Conversation = mongoose.models.Conversation;
@@ -34,11 +118,7 @@ export async function getDashboardStats(): Promise<AdminDashboardStats> {
       .exec() as unknown as Promise<
       Array<{ _id: string; name?: string; email: string; createdAt: string }>
     >,
-    User.aggregate([
-      { $group: { _id: '$provider', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $project: { _id: 0, provider: '$_id', count: 1 } },
-    ]) as Promise<Array<{ provider: string; count: number }>>,
+    aggregateAuthProviders(User),
   ]);
 
   // Enrich recent users with lastActive and messageCount
