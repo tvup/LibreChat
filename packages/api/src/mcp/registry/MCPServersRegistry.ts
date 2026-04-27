@@ -256,18 +256,21 @@ export class MCPServersRegistry {
   /**
    * Re-inspects a server that previously failed initialization.
    * Uses the stored stub config to attempt a full inspection and replaces the stub on success.
+   * Pass `force: true` to also reinspect servers that are currently healthy
+   * (used by the admin reinitialize endpoint to refresh tool/capability metadata).
    */
   public async reinspectServer(
     serverName: string,
     storageLocation: 'CACHE' | 'DB',
     userId?: string,
+    force = false,
   ): Promise<t.AddServerResult> {
     const configRepo = this.getConfigRepository(storageLocation);
     const existing = await configRepo.get(serverName, userId);
     if (!existing) {
       throw new Error(`Server "${serverName}" not found in ${storageLocation} for reinspection.`);
     }
-    if (!existing.inspectionFailed) {
+    if (!existing.inspectionFailed && !force) {
       throw new Error(
         `Server "${serverName}" is not in a failed state. Use updateServer() instead.`,
       );

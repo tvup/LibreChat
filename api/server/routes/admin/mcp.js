@@ -31,11 +31,19 @@ router.get('/stats', async (req, res) => {
 });
 
 router.post('/:serverName/reinitialize', async (req, res) => {
+  const { serverName } = req.params;
   try {
-    const { serverName } = req.params;
-    res.status(200).json({ message: `Reinitialize request sent for ${serverName}` });
+    const result = await adminMcpService.reinitializeMCPServer(serverName, req.user?.id);
+    res.status(200).json({
+      message: `Reinitialize succeeded for ${serverName}`,
+      ...result,
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Error reinitializing MCP server' });
+    const { logger } = require('@librechat/data-schemas');
+    logger.error(`[admin/mcp] reinitialize "${serverName}" failed:`, error);
+    res.status(500).json({
+      message: `Error reinitializing MCP server "${serverName}": ${error?.message ?? 'unknown'}`,
+    });
   }
 });
 

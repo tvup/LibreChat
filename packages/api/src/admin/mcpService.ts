@@ -129,6 +129,40 @@ async function getRegistryConfigsSafe(): Promise<Record<string, { tools?: string
   }
 }
 
+/**
+ * Force a re-inspection of an MCP server (admin action).
+ *
+ * Tries CACHE storage first (yaml/config-sourced servers), then DB storage
+ * (user-created servers). If the server isn't found in either, throws.
+ */
+export async function reinitializeMCPServer(
+  serverName: string,
+  userId?: string,
+): Promise<{ serverName: string; tools: string[] }> {
+  const registry = MCPServersRegistry.getInstance();
+
+  let result;
+  try {
+    result = await registry.reinspectServer(serverName, 'CACHE', undefined, true);
+  } catch (cacheErr) {
+    const cacheMessage = (cacheErr as Error).message;
+    const notInCache = cacheMessage.includes('not found in CACHE');
+    if (!notInCache) {
+      throw cacheErr;
+    }
+    result = await registry.reinspectServer(serverName, 'DB', userId, true);
+  }
+
+  const toolsField = (result.config as { tools?: string }).tools;
+  const tools = toolsField
+    ? toolsField
+        .split(',')
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0)
+    : [];
+  return { serverName: result.serverName, tools };
+}
+
 function parseRegistryTools(toolsField?: string): string[] {
   if (!toolsField) {
     return [];
