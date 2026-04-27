@@ -280,7 +280,15 @@ class FluxAPI extends Tool {
     let status = 'Pending';
     let resultData = null;
     let pollCount = 0;
-    while (status !== 'Ready' && status !== 'Error') {
+    const TERMINAL_STATUSES = new Set([
+      'Ready',
+      'Error',
+      'Content Moderated',
+      'Request Moderated',
+      'Task not found',
+      'Failed',
+    ]);
+    while (!TERMINAL_STATUSES.has(status)) {
       try {
         pollCount++;
         logger.debug(`[FluxAPI] Poll #${pollCount} waiting 2s...`);
@@ -299,9 +307,14 @@ class FluxAPI extends Tool {
         if (status === 'Ready') {
           resultData = resultResponse.data.result;
           break;
-        } else if (status === 'Error') {
-          logger.error('[FluxAPI] Error in task:', resultResponse.data);
-          return this.returnValue('An error occurred during image generation.');
+        } else if (status === 'Content Moderated' || status === 'Request Moderated') {
+          logger.warn(`[FluxAPI] ${status}: prompt afvist af FluxAPI's content filter`);
+          return this.returnValue(
+            'The prompt was rejected by the image-generation provider (content moderation). Please try a different prompt.',
+          );
+        } else if (TERMINAL_STATUSES.has(status)) {
+          logger.error('[FluxAPI] Terminal failure status:', status, resultResponse.data);
+          return this.returnValue(`Image generation failed: ${status}.`);
         }
       } catch (error) {
         logger.error(`[FluxAPI] Poll #${pollCount} error: name=${error?.name} code=${error?.code} status=${error?.response?.status} message=${error?.message} data=${JSON.stringify(error?.response?.data)}`);
@@ -542,7 +555,15 @@ class FluxAPI extends Tool {
     // Polling for the result
     let status = 'Pending';
     let resultData = null;
-    while (status !== 'Ready' && status !== 'Error') {
+    const TERMINAL_FT_STATUSES = new Set([
+      'Ready',
+      'Error',
+      'Content Moderated',
+      'Request Moderated',
+      'Task not found',
+      'Failed',
+    ]);
+    while (!TERMINAL_FT_STATUSES.has(status)) {
       try {
         // Wait 2 seconds between polls
         await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -558,9 +579,14 @@ class FluxAPI extends Tool {
         if (status === 'Ready') {
           resultData = resultResponse.data.result;
           break;
-        } else if (status === 'Error') {
-          logger.error('[FluxAPI] Error in finetuned task:', resultResponse.data);
-          return this.returnValue('An error occurred during finetuned image generation.');
+        } else if (status === 'Content Moderated' || status === 'Request Moderated') {
+          logger.warn(`[FluxAPI] ${status} (finetuned): prompt afvist af content filter`);
+          return this.returnValue(
+            'The prompt was rejected by the image-generation provider (content moderation). Please try a different prompt.',
+          );
+        } else if (TERMINAL_FT_STATUSES.has(status)) {
+          logger.error('[FluxAPI] Terminal failure status (finetuned):', status, resultResponse.data);
+          return this.returnValue(`Finetuned image generation failed: ${status}.`);
         }
       } catch (error) {
         const details = this.getDetails(error?.response?.data || error.message);
