@@ -1,5 +1,4 @@
 import { useState, memo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import * as Menu from '@ariakit/react/menu';
 import { SystemRoles } from 'librechat-data-provider';
 import { FileText, LogOut, ShieldEllipsis } from 'lucide-react';
@@ -13,7 +12,6 @@ import Settings from './Settings';
 
 function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
   const localize = useLocalize();
-  const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuthContext();
   const { data: startupConfig } = useGetStartupConfig();
   const balanceQuery = useGetUserBalance({
@@ -92,7 +90,12 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           {localize('com_nav_settings')}
         </Menu.MenuItem>
         {user?.role === SystemRoles.ADMIN && (
-          <Menu.MenuItem onClick={() => navigate('/admin')} className="select-item text-sm">
+          <Menu.MenuItem
+            onClick={() => {
+              window.location.href = '/admin/';
+            }}
+            className="select-item text-sm"
+          >
             <ShieldEllipsis className="icon-md" aria-hidden="true" />
             {localize('com_admin_panel')}
           </Menu.MenuItem>
