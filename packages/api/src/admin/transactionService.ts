@@ -39,7 +39,7 @@ export async function getTokenStats(): Promise<TokenStatsResult> {
         $group: {
           _id: null,
           totalTokens: {
-            $sum: { $add: [{ $ifNull: ['$rawAmount', 0] }] },
+            $sum: { $abs: { $ifNull: ['$rawAmount', 0] } },
           },
         },
       },
@@ -53,7 +53,7 @@ export async function getTokenStats(): Promise<TokenStatsResult> {
             $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
           },
           tokens: {
-            $sum: { $add: [{ $ifNull: ['$rawAmount', 0] }] },
+            $sum: { $abs: { $ifNull: ['$rawAmount', 0] } },
           },
         },
       },
@@ -72,7 +72,7 @@ export async function getTokenStats(): Promise<TokenStatsResult> {
         $group: {
           _id: '$user',
           totalTokens: {
-            $sum: { $add: [{ $ifNull: ['$rawAmount', 0] }] },
+            $sum: { $abs: { $ifNull: ['$rawAmount', 0] } },
           },
         },
       },
@@ -104,7 +104,7 @@ export async function getTokenStats(): Promise<TokenStatsResult> {
         $group: {
           _id: '$model',
           totalTokens: {
-            $sum: { $add: [{ $ifNull: ['$rawAmount', 0] }] },
+            $sum: { $abs: { $ifNull: ['$rawAmount', 0] } },
           },
         },
       },
