@@ -129,8 +129,8 @@ export async function resetPassword(
   const User = mongoose.models.User;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const bcrypt = require('bcryptjs');
-  const salt = bcrypt.genSaltSync(10);
-  const hashedPassword = bcrypt.hashSync(newPassword, salt);
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(newPassword, salt);
 
   const result = await User.findByIdAndUpdate(userId, { $set: { password: hashedPassword } });
   if (!result) {
