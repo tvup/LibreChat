@@ -147,11 +147,11 @@ export default function StreamAudio({ index = 0 }) {
 
         logger.log('Audio stream reading ended');
       } catch (error) {
-        if (error?.['message'] !== promiseTimeoutMessage) {
+        if (error?.['message'] === promiseTimeoutMessage) {
           logger.log(promiseTimeoutMessage);
-          return;
+        } else {
+          logger.error('Error fetching audio:', error);
         }
-        logger.error('Error fetching audio:', error);
         setIsFetching(false);
         setGlobalAudioURL(null);
       } finally {
