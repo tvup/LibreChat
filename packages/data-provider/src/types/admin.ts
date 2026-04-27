@@ -28,27 +28,6 @@ export interface AdminUserDetail extends AdminUserItem {
   personalization?: { memories?: boolean };
 }
 
-export interface AdminUserListParams {
-  limit?: number;
-  cursor?: string;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
-  search?: string;
-  role?: string;
-  provider?: string;
-}
-
-export interface AdminUserListResponse {
-  data: AdminUserItem[];
-  pagination: {
-    hasNextPage: boolean;
-    hasPreviousPage: boolean;
-    nextCursor?: string;
-    previousCursor?: string;
-    totalCount?: number;
-  };
-}
-
 export interface AdminUpdateUserRequest {
   name?: string;
   email?: string;
@@ -56,24 +35,9 @@ export interface AdminUpdateUserRequest {
   emailVerified?: boolean;
 }
 
-export interface AdminResetPasswordRequest {
-  newPassword: string;
-}
-
-export interface AdminBanUserRequest {
-  duration: number;
-}
-
 export interface AdminSetBalanceRequest {
   amount: number;
   mode: 'add' | 'set';
-}
-
-export interface AdminCreateUserRequest {
-  name?: string;
-  email: string;
-  password: string;
-  role?: string;
 }
 
 export interface AdminDashboardRecentUser {
@@ -155,21 +119,6 @@ export interface AdminCreateBannerRequest {
 
 export type AdminUpdateBannerRequest = Partial<AdminCreateBannerRequest>;
 
-export interface AdminSocialMapping {
-  _id: string;
-  socialEmail: string;
-  provider: string;
-  targetUserId: string;
-  targetUser?: { _id: string; name?: string; email: string };
-  createdAt?: string;
-}
-
-export interface AdminCreateSocialMappingRequest {
-  socialEmail: string;
-  provider: string;
-  targetUserId: string;
-}
-
 export interface AdminFileItem {
   _id: string;
   file_id: string;
@@ -221,89 +170,4 @@ export interface AdminSystemInfo {
 export interface AdminEndpointStats {
   endpointCounts: Array<{ endpoint: string; count: number }>;
   modelUsage: Array<{ endpoint: string; model: string; count: number }>;
-}
-
-export interface AdminMCPServer {
-  _id: string;
-  name: string;
-  url?: string;
-  type?: string;
-  tools?: string[];
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface AdminMCPStats {
-  totalServers: number;
-  serversByType: Array<{ type: string; count: number }>;
-}
-
-export interface AdminDailyTokenUsage {
-  date: string;
-  tokens: number;
-}
-
-export interface AdminUserTokenUsage {
-  userId: string;
-  name?: string;
-  email?: string;
-  totalTokens: number;
-}
-
-export interface AdminModelTokenUsage {
-  model: string;
-  totalTokens: number;
-}
-
-export interface AdminTokenStats {
-  totalTokens: number;
-  dailyUsage: AdminDailyTokenUsage[];
-  topUsers: AdminUserTokenUsage[];
-  usageByModel: AdminModelTokenUsage[];
-}
-
-export interface AdminModelItem {
-  model: string;
-  enabled: boolean;
-}
-
-export type AdminModelsConfig = Record<string, AdminModelItem[]>;
-
-export interface AdminToggleModelRequest {
-  endpoint: string;
-  model: string;
-  disabled: boolean;
-}
-
-export interface AdminToggleModelResponse {
-  endpoint: string;
-  disabledModels: string[];
-}
-
-export interface AdminBulkModelRequest {
-  endpoint: string;
-  disabledModels: string[];
-}
-
-export interface AdminBulkActionRequest {
-  userIds: string[];
-}
-
-export interface AdminBulkBanRequest extends AdminBulkActionRequest {
-  duration: number;
-}
-
-export interface AdminBulkRoleRequest extends AdminBulkActionRequest {
-  role: string;
-}
-
-export interface AdminInviteUserRequest {
-  email: string;
-  role?: string;
-}
-
-export interface AdminInviteUserResponse {
-  message: string;
-  tempPassword: string;
-  user: AdminUserItem;
 }
