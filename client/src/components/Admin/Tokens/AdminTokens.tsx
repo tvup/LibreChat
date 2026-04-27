@@ -42,10 +42,10 @@ export default function AdminTokens() {
   const { data: stats, isLoading } = useAdminTokenStats();
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
 
-  const maxDaily = stats?.dailyUsage?.reduce((max, d) => Math.max(max, Math.abs(d.tokens)), 0) ?? 0;
-  const maxModel = stats?.usageByModel?.reduce((max, m) => Math.max(max, Math.abs(m.totalTokens)), 0) ?? 0;
+  const maxDaily = stats?.dailyUsage?.reduce((max, d) => Math.max(max, d.tokens), 0) ?? 0;
+  const maxModel = stats?.usageByModel?.reduce((max, m) => Math.max(max, m.totalTokens), 0) ?? 0;
 
-  const weeklyTotal = stats?.dailyUsage?.reduce((sum, d) => sum + Math.abs(d.tokens), 0) ?? 0;
+  const weeklyTotal = stats?.dailyUsage?.reduce((sum, d) => sum + d.tokens, 0) ?? 0;
   const dailyAverage = stats?.dailyUsage?.length
     ? Math.round(weeklyTotal / stats.dailyUsage.length)
     : 0;
@@ -70,7 +70,7 @@ export default function AdminTokens() {
                 <div className="mt-1 h-6 w-16 animate-pulse rounded bg-surface-hover" />
               ) : (
                 <p className="text-xl font-semibold text-text-primary">
-                  {formatTokens(Math.abs(stats?.totalTokens ?? 0))}
+                  {formatTokens(stats?.totalTokens ?? 0)}
                 </p>
               )}
             </div>
@@ -177,7 +177,7 @@ export default function AdminTokens() {
         ) : (
           <div className="flex h-48 items-end gap-3">
             {stats.dailyUsage.map((day, index) => {
-              const height = maxDaily > 0 ? (Math.abs(day.tokens) / maxDaily) * 100 : 0;
+              const height = maxDaily > 0 ? (day.tokens / maxDaily) * 100 : 0;
               const isHovered = hoveredBar === index;
               return (
                 <div
@@ -188,11 +188,11 @@ export default function AdminTokens() {
                 >
                   {isHovered && (
                     <div className="absolute -top-10 z-10 whitespace-nowrap rounded-lg border border-border-light bg-surface-primary px-3 py-1.5 text-xs font-medium text-text-primary shadow-lg">
-                      {Math.abs(day.tokens).toLocaleString()} tokens
+                      {day.tokens.toLocaleString()} tokens
                     </div>
                   )}
                   <span className="text-xs font-medium text-text-secondary">
-                    {formatTokens(Math.abs(day.tokens))}
+                    {formatTokens(day.tokens)}
                   </span>
                   <div className="flex w-full justify-center" style={{ height: '140px' }}>
                     <div
@@ -258,7 +258,7 @@ export default function AdminTokens() {
                         )}
                       </td>
                       <td className="py-2 text-right font-mono text-text-primary">
-                        {formatTokens(Math.abs(user.totalTokens))}
+                        {formatTokens(user.totalTokens)}
                       </td>
                     </tr>
                   ))}
@@ -287,14 +287,14 @@ export default function AdminTokens() {
             <div className="space-y-3">
               {stats.usageByModel.map((model) => {
                 const percentage = maxModel > 0
-                  ? Math.round((Math.abs(model.totalTokens) / maxModel) * 100)
+                  ? Math.round((model.totalTokens / maxModel) * 100)
                   : 0;
                 return (
                   <div key={model.model}>
                     <div className="mb-1 flex items-center justify-between">
                       <span className="truncate text-sm text-text-primary">{model.model}</span>
                       <span className="ml-2 shrink-0 text-xs text-text-secondary">
-                        {formatTokens(Math.abs(model.totalTokens))}
+                        {formatTokens(model.totalTokens)}
                       </span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-surface-hover">
