@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify';
 import React, { useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { Button, Input, Label, OGDialog, OGDialogTemplate } from '@librechat/client';
@@ -83,7 +84,12 @@ export default function MCPConfigDialog({
                 {details.description && (
                   <p
                     className="text-xs text-text-secondary [&_a]:text-blue-500 [&_a]:hover:text-blue-600 dark:[&_a]:text-blue-400 dark:[&_a]:hover:text-blue-300"
-                    dangerouslySetInnerHTML={{ __html: details.description }}
+                    dangerouslySetInnerHTML={{
+                      __html: DOMPurify.sanitize(details.description, {
+                        ALLOWED_TAGS: ['a', 'b', 'i', 'em', 'strong', 'code', 'br'],
+                        ALLOWED_ATTR: ['href', 'target', 'rel'],
+                      }),
+                    }}
                   />
                 )}
                 {errors[key] && <p className="text-xs text-red-500">{errors[key]?.message}</p>}
