@@ -362,10 +362,17 @@ export const getAllPromptGroups = () => `${prompts()}/all`;
 /* Capabilities (upstream /api/admin/grants/effective) */
 export const adminGrantsEffective = () => `${BASE_URL}/api/admin/grants/effective`;
 
-/* Roles — capability-gated /api/admin/roles (legacy /api/roles fjernet) */
+/* Roles
+ * - GET /api/roles/:name (read-only, alle authed users — bruges af hoved-
+ *   klientens AuthContext til at vise/skjule chat-features pr. role)
+ * - /api/admin/roles/:name/permissions (capability-gated PATCH — bruges
+ *   af admin-GUI'en til at opdatere permissions)
+ */
+export const roles = () => `${BASE_URL}/api/roles`;
 export const adminRoles = () => `${BASE_URL}/api/admin/roles`;
-export const getRole = (roleName: string) => `${adminRoles()}/${encodeURIComponent(roleName)}`;
-export const updateRolePermissions = (roleName: string) => `${getRole(roleName)}/permissions`;
+export const getRole = (roleName: string) => `${roles()}/${encodeURIComponent(roleName)}`;
+export const updateRolePermissions = (roleName: string) =>
+  `${adminRoles()}/${encodeURIComponent(roleName)}/permissions`;
 
 /* Conversation Tags */
 export const conversationTags = (tag?: string) =>
