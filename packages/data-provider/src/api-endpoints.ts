@@ -359,21 +359,10 @@ export const getCategories = () => `${BASE_URL}/api/categories`;
 
 export const getAllPromptGroups = () => `${prompts()}/all`;
 
-/* Roles */
-export const roles = () => `${BASE_URL}/api/roles`;
+/* Roles — capability-gated /api/admin/roles (legacy /api/roles fjernet) */
 export const adminRoles = () => `${BASE_URL}/api/admin/roles`;
-export const getRole = (roleName: string) => `${roles()}/${encodeURIComponent(roleName)}`;
-export const updatePromptPermissions = (roleName: string) => `${getRole(roleName)}/prompts`;
-export const updateMemoryPermissions = (roleName: string) => `${getRole(roleName)}/memories`;
-export const updateAgentPermissions = (roleName: string) => `${getRole(roleName)}/agents`;
-export const updatePeoplePickerPermissions = (roleName: string) =>
-  `${getRole(roleName)}/people-picker`;
-export const updateMCPServersPermissions = (roleName: string) => `${getRole(roleName)}/mcp-servers`;
-export const updateRemoteAgentsPermissions = (roleName: string) =>
-  `${getRole(roleName)}/remote-agents`;
-
-export const updateMarketplacePermissions = (roleName: string) =>
-  `${getRole(roleName)}/marketplace`;
+export const getRole = (roleName: string) => `${adminRoles()}/${encodeURIComponent(roleName)}`;
+export const updateRolePermissions = (roleName: string) => `${getRole(roleName)}/permissions`;
 
 /* Conversation Tags */
 export const conversationTags = (tag?: string) =>

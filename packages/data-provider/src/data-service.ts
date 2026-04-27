@@ -860,7 +860,7 @@ export function getRandomPrompts(
   return request.get(endpoints.getRandomPrompts(variables.limit, variables.skip));
 }
 
-/* Roles */
+/* Roles — peger på /api/admin/roles (capability-gated) */
 export function listRoles(): Promise<q.ListRolesResponse> {
   return request.get(`${endpoints.adminRoles()}?limit=200`);
 }
@@ -869,52 +869,13 @@ export function getRole(roleName: string): Promise<r.TRole> {
   return request.get(endpoints.getRole(roleName));
 }
 
-export function updatePromptPermissions(
-  variables: m.UpdatePromptPermVars,
-): Promise<m.UpdatePermResponse> {
-  return request.put(endpoints.updatePromptPermissions(variables.roleName), variables.updates);
-}
-
-export function updateAgentPermissions(
-  variables: m.UpdateAgentPermVars,
-): Promise<m.UpdatePermResponse> {
-  return request.put(endpoints.updateAgentPermissions(variables.roleName), variables.updates);
-}
-
-export function updateMemoryPermissions(
-  variables: m.UpdateMemoryPermVars,
-): Promise<m.UpdatePermResponse> {
-  return request.put(endpoints.updateMemoryPermissions(variables.roleName), variables.updates);
-}
-
-export function updatePeoplePickerPermissions(
-  variables: m.UpdatePeoplePickerPermVars,
-): Promise<m.UpdatePermResponse> {
-  return request.put(
-    endpoints.updatePeoplePickerPermissions(variables.roleName),
-    variables.updates,
-  );
-}
-
-export function updateMCPServersPermissions(
-  variables: m.UpdateMCPServersPermVars,
-): Promise<m.UpdatePermResponse> {
-  return request.put(endpoints.updateMCPServersPermissions(variables.roleName), variables.updates);
-}
-
-export function updateRemoteAgentsPermissions(
-  variables: m.UpdateRemoteAgentsPermVars,
-): Promise<m.UpdatePermResponse> {
-  return request.put(
-    endpoints.updateRemoteAgentsPermissions(variables.roleName),
-    variables.updates,
-  );
-}
-
-export function updateMarketplacePermissions(
-  variables: m.UpdateMarketplacePermVars,
-): Promise<m.UpdatePermResponse> {
-  return request.put(endpoints.updateMarketplacePermissions(variables.roleName), variables.updates);
+export function updateRolePermissions(variables: {
+  roleName: string;
+  permissions: Record<string, Record<string, boolean>>;
+}): Promise<m.UpdatePermResponse> {
+  return request.patch(endpoints.updateRolePermissions(variables.roleName), {
+    permissions: variables.permissions,
+  });
 }
 
 /* Tags */

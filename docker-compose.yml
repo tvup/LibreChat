@@ -34,7 +34,6 @@ services:
       - ./packages/data-schemas/dist:/app/packages/data-schemas/dist
       - ./api/server/routes/admin:/app/api/server/routes/admin
       - ./api/server/routes/config.js:/app/api/server/routes/config.js
-      - ./api/server/routes/roles.js:/app/api/server/routes/roles.js
       - ./api/server/routes/index.js:/app/api/server/routes/index.js
       - ./api/server/index.js:/app/api/server/index.js
       - ./api/server/controllers/ModelController.js:/app/api/server/controllers/ModelController.js

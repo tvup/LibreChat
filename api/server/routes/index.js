@@ -17,7 +17,6 @@ const models = require('./models');
 const convos = require('./convos');
 const config = require('./config');
 const agents = require('./agents');
-const roles = require('./roles');
 const oauth = require('./oauth');
 const files = require('./files');
 const share = require('./share');
@@ -35,7 +34,6 @@ module.exports = {
   apiKeys,
   user,
   tags,
-  roles,
   oauth,
   files,
   share,
