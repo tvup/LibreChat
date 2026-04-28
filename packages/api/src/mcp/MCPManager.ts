@@ -348,12 +348,24 @@ Please follow these instructions when using tools from the respective MCP server
         connection.setRequestHeaders(currentOptions.headers || {});
       }
 
+      /**
+       * Forken-only: injicér caller's user-id i tool-arguments som
+       * `__caller_user_id`. MCP-tools der har brug for at vide hvilken
+       * LibreChat-bruger der trigger tool-call'et (fx for at registrere
+       * filer i Files-collection under den rigtige owner) kan læse den
+       * fra args. MCP-tools der ikke bruger den ignorerer feltet.
+       */
+      const enrichedArguments =
+        userId != null
+          ? { ...(toolArguments ?? {}), __caller_user_id: String(userId) }
+          : toolArguments;
+
       const result = await connection.client.request(
         {
           method: 'tools/call',
           params: {
             name: toolName,
-            arguments: toolArguments,
+            arguments: enrichedArguments,
           },
         },
         CallToolResultSchema,

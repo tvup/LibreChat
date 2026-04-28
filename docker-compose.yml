@@ -47,6 +47,7 @@ services:
       - ./api/server/controllers/agents/client.js:/app/api/server/controllers/agents/client.js
       - ./api/app/clients/tools/structured/StableDiffusion.js:/app/api/app/clients/tools/structured/StableDiffusion.js
       - ./api/server/services/Files/Audio/TTSService.js:/app/api/server/services/Files/Audio/TTSService.js
+      - /home/tvup/Projects/atlascloud-mcp:/app/mcp/atlascloud:ro
   mongodb:
     container_name: chat-mongodb
     image: mongo:8.0.20

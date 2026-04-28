@@ -8,6 +8,7 @@ import ScrollToBottom from '~/components/Messages/ScrollToBottom';
 import { MessagesViewProvider } from '~/Providers';
 import { fontSizeAtom } from '~/store/fontSize';
 import MultiMessage from './MultiMessage';
+import QuoteSelection from './QuoteSelection';
 import { cn } from '~/utils';
 import store from '~/store';
 
@@ -77,6 +78,8 @@ function MessagesViewContent({
               />
             </div>
           </div>
+
+          <QuoteSelection />
 
           <CSSTransition
             in={showScrollButton && scrollButtonPreference}

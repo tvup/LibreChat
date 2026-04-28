@@ -14,12 +14,22 @@ const files = require('./files');
 const images = require('./images');
 const avatar = require('./avatar');
 const speech = require('./speech');
+const fromUrl = require('./from-url');
 
 const initialize = async () => {
   const router = express.Router();
   router.use(requireJwtAuth);
   router.use(configMiddleware);
   router.use(checkBan);
+
+  /**
+   * Service-til-service-route — mounted FØR uaParser så MCP-tools (atlascloud
+   * m.fl.) kan kalde os uden at sende en browser User-Agent. Routen kræver
+   * stadig requireJwtAuth ovenfor, og JWT'en skal være signeret med
+   * JWT_SECRET af en betroet caller.
+   */
+  router.use('/from-url', fromUrl);
+
   router.use(uaParser);
 
   const upload = await createMulterInstance();

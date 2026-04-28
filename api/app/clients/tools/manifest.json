@@ -166,5 +166,18 @@
         "optional": true
       }
     ]
+  },
+  {
+    "name": "Atlas Cloud Image Generator",
+    "pluginKey": "atlas-cloud-image",
+    "description": "Generate NSFW images using Atlas Cloud's 15+ NSFW models",
+    "icon": "https://example.com/icon.png",
+    "authConfig": [
+      {
+        "authField": "ATLAS_CLOUD_API_KEY",
+        "label": "Atlas Cloud API Key",
+        "description": "Your Atlas Cloud API key for NSFW image generation"
+      }
+    ]
   }
 ]
