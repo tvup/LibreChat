@@ -324,6 +324,7 @@ class TTSService {
       req.config ??
       (await getAppConfig({
         role: req.user?.role,
+        userId: req.user?.id,
         tenantId: req.user?.tenantId,
       }));
     try {
@@ -387,6 +388,7 @@ class TTSService {
       req.config ??
       (await getAppConfig({
         role: req.user?.role,
+        userId: req.user?.id,
         tenantId: req.user?.tenantId,
       }));
     const provider = this.getProvider(appConfig);

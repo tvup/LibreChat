@@ -9,6 +9,7 @@ import { MessagesViewProvider } from '~/Providers';
 import { fontSizeAtom } from '~/store/fontSize';
 import MultiMessage from './MultiMessage';
 import QuoteSelection from './QuoteSelection';
+import MessageNav from './MessageNav';
 import { cn } from '~/utils';
 import store from '~/store';
 
@@ -22,7 +23,7 @@ function MessagesViewContent({
   const { screenshotTargetRef } = useScreenshot();
   const scrollButtonPreference = useRecoilValue(store.showScrollButton);
   const [currentEditId, setCurrentEditId] = useState<number | string | null>(-1);
-  const scrollToBottomRef = useRef<HTMLButtonElement>(null);
+  const scrollToBottomRef = useRef<HTMLDivElement>(null);
 
   const {
     conversation,
@@ -84,8 +85,8 @@ function MessagesViewContent({
           <CSSTransition
             in={showScrollButton && scrollButtonPreference}
             timeout={{
-              enter: 550,
-              exit: 700,
+              enter: 300,
+              exit: 250,
             }}
             classNames="scroll-animation"
             unmountOnExit={true}
@@ -94,6 +95,8 @@ function MessagesViewContent({
           >
             <ScrollToBottom ref={scrollToBottomRef} scrollHandler={handleSmoothToRef} />
           </CSSTransition>
+
+          <MessageNav scrollableRef={scrollableRef} />
         </div>
       </div>
     </>

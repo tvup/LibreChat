@@ -10,6 +10,7 @@ import {
   peoplePickerPermissionsSchema,
   promptPermissionsSchema,
   remoteAgentsPermissionsSchema,
+  skillPermissionsSchema,
 } from 'librechat-data-provider';
 import type {
   QueryObserverResult,
@@ -112,6 +113,14 @@ export const useUpdateMemoryPermissionsMutation = (options?: t.UpdateMemoryPermO
     PermissionTypes.MEMORIES,
     memoryPermissionsSchema,
     'memory',
+    options,
+  );
+
+export const useUpdateSkillPermissionsMutation = (options?: t.UpdateSkillPermOptions) =>
+  buildPermissionMutation<t.UpdateSkillPermVars>(
+    PermissionTypes.SKILLS,
+    skillPermissionsSchema,
+    'skill',
     options,
   );
 
