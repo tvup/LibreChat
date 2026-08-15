@@ -6,8 +6,13 @@ const fsp = fs.promises;
 const path = require('path');
 const { Transform } = require('stream');
 const { logger } = require('@librechat/data-schemas');
-const { HttpsProxyAgent } = require('https-proxy-agent');
-const { genAzureEndpoint, logAxiosError } = require('@librechat/api');
+const {
+  genAzureEndpoint,
+  logAxiosError,
+  applyAxiosProxyConfig,
+  resolveConfigSecret,
+  applySSRFSafeAgentIfDirect,
+} = require('@librechat/api');
 const { extractEnvVariable, TTSProviders } = require('librechat-data-provider');
 const { getRandomVoiceId, createChunkProcessor, splitTextIntoChunks } = require('./streamAudio');
 const { getAppConfig } = require('~/server/services/Config');
@@ -120,7 +125,7 @@ class TTSService {
       );
     }
     const providers = Object.entries(ttsSchema).filter(
-      ([, value]) => Object.keys(value).length > 0,
+      ([key, value]) => key !== 'allowedAddresses' && Object.keys(value).length > 0,
     );
 
     if (providers.length !== 1) {
@@ -176,9 +181,10 @@ class TTSService {
       backend: ttsSchema?.backend,
     };
 
+    const apiKey = resolveConfigSecret(ttsSchema?.apiKey) || '';
     const headers = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${extractEnvVariable(ttsSchema?.apiKey)}`,
+      ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
     };
 
     return [url, data, headers];
@@ -207,7 +213,7 @@ class TTSService {
 
     const headers = {
       'Content-Type': 'application/json',
-      'api-key': ttsSchema.apiKey ? extractEnvVariable(ttsSchema.apiKey) : '',
+      'api-key': ttsSchema.apiKey ? resolveConfigSecret(ttsSchema.apiKey) || '' : '',
     };
 
     return [url, data, headers];
@@ -234,9 +240,10 @@ class TTSService {
       pronunciation_dictionary_locators: ttsSchema?.pronunciation_dictionary_locators,
     };
 
+    const apiKey = resolveConfigSecret(ttsSchema?.apiKey) || '';
     const headers = {
       'Content-Type': 'application/json',
-      'xi-api-key': extractEnvVariable(ttsSchema?.apiKey),
+      ...(apiKey && { 'xi-api-key': apiKey }),
       Accept: 'audio/mpeg',
     };
 
@@ -261,26 +268,29 @@ class TTSService {
       backend: ttsSchema?.backend,
     };
 
+    const apiKey = resolveConfigSecret(ttsSchema?.apiKey) || '';
     const headers = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${extractEnvVariable(ttsSchema?.apiKey)}`,
+      ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
     };
-
-    if (extractEnvVariable(ttsSchema.apiKey) === '') {
-      delete headers.Authorization;
-    }
 
     return [url, data, headers];
   }
 
-  /* ====== TTS REQUEST — NOW WITH CACHING ====== */
+  /* ====== TTS REQUEST — NOW WITH CACHING + SSRF PROTECTION ====== */
 
-  async ttsRequest(provider, ttsSchema, { input, voice, stream = true, appConfig }) {
+  async ttsRequest(
+    provider,
+    ttsSchema,
+    { input, voice, stream = true, appConfig },
+    allowedAddresses,
+  ) {
     const maxAgeMs = this.getCacheMaxAgeMs(appConfig);
     const cached = await this.getCachedStream(input, voice, maxAgeMs);
     if (cached) {
       return { data: cached };
     }
+
 
     const strategy = this.providerStrategies[provider];
     if (!strategy) {
@@ -293,9 +303,8 @@ class TTSService {
 
     const options = { headers, responseType: stream ? 'stream' : 'arraybuffer' };
 
-    if (process.env.PROXY) {
-      options.httpsAgent = new HttpsProxyAgent(process.env.PROXY);
-    }
+    applyAxiosProxyConfig(options, url);
+    applySSRFSafeAgentIfDirect(options, url, allowedAddresses);
 
     try {
       const response = await axios.post(url, data, options);
@@ -331,10 +340,16 @@ class TTSService {
       res.setHeader('Content-Type', 'audio/mpeg');
       const provider = this.getProvider(appConfig);
       const ttsSchema = appConfig?.speech?.tts?.[provider];
+      const allowedAddresses = appConfig?.speech?.tts?.allowedAddresses;
       const voice = await this.getVoice(ttsSchema, requestVoice);
 
       if (input.length < 4096) {
-        const response = await this.ttsRequest(provider, ttsSchema, { input, voice, appConfig });
+        const response = await this.ttsRequest(
+          provider,
+          ttsSchema,
+          { input, voice, appConfig },
+          allowedAddresses,
+        );
         response.data.pipe(res);
         return;
       }
@@ -343,12 +358,17 @@ class TTSService {
 
       for (const chunk of textChunks) {
         try {
-          const response = await this.ttsRequest(provider, ttsSchema, {
-            voice,
-            input: chunk.text,
-            stream: true,
-            appConfig,
-          });
+          const response = await this.ttsRequest(
+            provider,
+            ttsSchema,
+            {
+              voice,
+              input: chunk.text,
+              stream: true,
+              appConfig,
+            },
+            allowedAddresses,
+          );
 
           logger.debug(`[textToSpeech] user: ${req?.user?.id} | writing audio stream`);
           await new Promise((resolve) => {
@@ -393,6 +413,7 @@ class TTSService {
       }));
     const provider = this.getProvider(appConfig);
     const ttsSchema = appConfig?.speech?.tts?.[provider];
+    const allowedAddresses = appConfig?.speech?.tts?.allowedAddresses;
     const voice = await this.getVoice(ttsSchema, req.body.voice);
 
     let shouldContinue = true;
@@ -419,12 +440,17 @@ class TTSService {
 
         for (const update of updates) {
           try {
-            const response = await this.ttsRequest(provider, ttsSchema, {
-              voice,
-              input: update.text,
-              stream: true,
-              appConfig,
-            });
+            const response = await this.ttsRequest(
+              provider,
+              ttsSchema,
+              {
+                voice,
+                input: update.text,
+                stream: true,
+                appConfig,
+              },
+              allowedAddresses,
+            );
 
             if (!shouldContinue) {
               break;
@@ -492,4 +518,5 @@ module.exports = {
   textToSpeech,
   streamAudio,
   getProvider,
+  TTSService,
 };

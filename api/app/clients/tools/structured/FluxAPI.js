@@ -2,9 +2,12 @@ const axios = require('axios');
 const fetch = require('node-fetch');
 const { v4: uuidv4 } = require('uuid');
 const { logger } = require('@librechat/data-schemas');
-const { HttpsProxyAgent } = require('https-proxy-agent');
 const { Tool } = require('@librechat/agents/langchain/tools');
-const { createMinimalRetentionRequest } = require('@librechat/api');
+const {
+  applyAxiosProxyConfig,
+  createMinimalRetentionRequest,
+  getHttpsProxyAgent,
+} = require('@librechat/api');
 const { FileContext, ContentTypes } = require('librechat-data-provider');
 
 const fluxApiJsonSchema = {
@@ -154,10 +157,7 @@ class FluxAPI extends Tool {
 
   getAxiosConfig() {
     const config = {};
-    if (process.env.PROXY) {
-      config.httpsAgent = new HttpsProxyAgent(process.env.PROXY);
-    }
-    return config;
+    return applyAxiosProxyConfig(config, this.baseUrl);
   }
 
   /** @param {Object|string} value */
@@ -365,8 +365,9 @@ class FluxAPI extends Tool {
     } else if (this.isAgent) {
       try {
         const fetchOptions = {};
-        if (process.env.PROXY) {
-          fetchOptions.agent = new HttpsProxyAgent(process.env.PROXY);
+        const agent = getHttpsProxyAgent(imageUrl);
+        if (agent) {
+          fetchOptions.agent = agent;
         }
         const imageResponse = await fetch(imageUrl, fetchOptions);
         const arrayBuffer = await imageResponse.arrayBuffer();
@@ -612,8 +613,9 @@ class FluxAPI extends Tool {
     if (this.isAgent) {
       try {
         const fetchOptions = {};
-        if (process.env.PROXY) {
-          fetchOptions.agent = new HttpsProxyAgent(process.env.PROXY);
+        const agent = getHttpsProxyAgent(imageUrl);
+        if (agent) {
+          fetchOptions.agent = agent;
         }
         const imageResponse = await fetch(imageUrl, fetchOptions);
         const arrayBuffer = await imageResponse.arrayBuffer();

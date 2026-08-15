@@ -10,6 +10,7 @@ const {
 } = require('~/server/controllers/UserController');
 const {
   verifyEmailLimiter,
+  verifyEmailSubmissionLimiter,
   configMiddleware,
   canDeleteAccount,
   requireJwtAuth,
@@ -40,7 +41,7 @@ router.patch('/preferred-name', requireJwtAuth, async (req, res) => {
   }
 });
 
-router.post('/verify', verifyEmailController);
+router.post('/verify', verifyEmailSubmissionLimiter, verifyEmailController);
 router.post('/verify/resend', verifyEmailLimiter, resendVerificationController);
 
 /** Linked Accounts */

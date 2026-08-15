@@ -23,7 +23,7 @@ const BackupCodeSchema = new Schema(
   { _id: false },
 );
 
-const userSchema = new Schema<IUser>(
+const userSchema: Schema<IUser> = new Schema<IUser>(
   {
     name: {
       type: String,
@@ -130,6 +130,10 @@ const userSchema = new Schema<IUser>(
     termsAccepted: {
       type: Boolean,
       default: false,
+    },
+    termsAcceptedAt: {
+      type: Date,
+      default: null,
     },
     personalization: {
       type: {

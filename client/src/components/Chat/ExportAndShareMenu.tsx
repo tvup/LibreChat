@@ -2,11 +2,13 @@ import { useState, useId, useRef } from 'react';
 import { useRecoilValue } from 'recoil';
 import * as Ariakit from '@ariakit/react';
 import { Upload, Share2 } from 'lucide-react';
+import { PermissionTypes, Permissions } from 'librechat-data-provider';
+import { useGetSharedLinkQuery } from 'librechat-data-provider/react-query';
 import { DropdownPopup, TooltipAnchor, useMediaQuery } from '@librechat/client';
 import type * as t from '~/common';
 import ExportModal from '~/components/Nav/ExportConversation/ExportModal';
 import { ShareButton } from '~/components/Conversations/ConvoOptions';
-import { useLocalize } from '~/hooks';
+import { useHasAccess, useLocalize } from '~/hooks';
 import store from '~/store';
 
 export default function ExportAndShareMenu({
@@ -22,14 +24,22 @@ export default function ExportAndShareMenu({
   const menuId = useId();
   const shareButtonRef = useRef<HTMLButtonElement>(null);
   const exportButtonRef = useRef<HTMLButtonElement>(null);
+  const canCreateSharedLinks = useHasAccess({
+    permissionType: PermissionTypes.SHARED_LINKS,
+    permission: Permissions.CREATE,
+  });
   const isSmallScreen = useMediaQuery('(max-width: 768px)');
   const conversation = useRecoilValue(store.conversationByIndex(0));
 
   const exportable =
-    conversation &&
+    conversation != null &&
     conversation.conversationId != null &&
     conversation.conversationId !== 'new' &&
     conversation.conversationId !== 'search';
+  const { data: share } = useGetSharedLinkQuery(conversation?.conversationId ?? '', {
+    enabled: exportable && isSharedButtonEnabled,
+  });
+  const hasSharedLink = Boolean(share?.shareId);
 
   if (exportable === false) {
     return null;
@@ -48,11 +58,11 @@ export default function ExportAndShareMenu({
       label: localize('com_ui_share'),
       onClick: shareHandler,
       icon: <Share2 className="icon-md mr-2 text-text-secondary" />,
-      show: isSharedButtonEnabled,
+      show: isSharedButtonEnabled && canCreateSharedLinks,
       /** NOTE: THE FOLLOWING PROPS ARE REQUIRED FOR MENU ITEMS THAT OPEN DIALOGS */
       hideOnClick: false,
       ref: shareButtonRef,
-      render: (props) => <button {...props} />,
+      render: (props) => <button {...props} data-testid="share-conversation-menu-item" />,
     },
     {
       label: localize('com_endpoint_export'),
@@ -76,18 +86,29 @@ export default function ExportAndShareMenu({
         setIsOpen={setIsPopoverActive}
         trigger={
           <TooltipAnchor
-            description={localize('com_endpoint_export_share')}
+            description={localize(
+              hasSharedLink ? 'com_ui_export_share_link_active' : 'com_endpoint_export_share',
+            )}
             render={
               <Ariakit.MenuButton
                 id="export-menu-button"
-                aria-label="Export options"
-                className="inline-flex size-9 flex-shrink-0 items-center justify-center rounded-xl border border-border-light bg-presentation text-text-primary transition-all ease-in-out hover:bg-surface-tertiary disabled:pointer-events-none disabled:opacity-50 radix-state-open:bg-surface-tertiary"
+                aria-label={localize(
+                  hasSharedLink ? 'com_ui_export_share_link_active' : 'com_endpoint_export_share',
+                )}
+                className="relative inline-flex size-9 flex-shrink-0 items-center justify-center rounded-xl border border-border-light bg-presentation text-text-primary transition-all ease-in-out hover:bg-surface-tertiary disabled:pointer-events-none disabled:opacity-50 radix-state-open:bg-surface-tertiary"
               >
                 <Share2
                   className="icon-md text-text-primary"
                   aria-hidden="true"
                   focusable="false"
                 />
+                {hasSharedLink && (
+                  <span
+                    className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-status-info ring-2 ring-presentation"
+                    data-testid="header-shared-link-indicator"
+                    aria-hidden="true"
+                  />
+                )}
               </Ariakit.MenuButton>
             }
           />

@@ -3,6 +3,8 @@
  * Tests that recordCollectedUsage is called correctly for token spending
  */
 
+const { ErrorTypes, ResourceType } = require('librechat-data-provider');
+
 const mockProcessStream = jest.fn().mockResolvedValue(undefined);
 const mockSpendTokens = jest.fn().mockResolvedValue({});
 const mockSpendStructuredTokens = jest.fn().mockResolvedValue({});
@@ -11,6 +13,70 @@ const mockRecordCollectedUsage = jest
   .mockResolvedValue({ input_tokens: 100, output_tokens: 50 });
 const mockGetBalanceConfig = jest.fn().mockReturnValue({ enabled: true });
 const mockGetTransactionsConfig = jest.fn().mockReturnValue({ enabled: true });
+class MockAgentRunEnvelopeError extends TypeError {
+  constructor(message) {
+    super(message);
+    this.name = 'AgentRunEnvelopeError';
+  }
+}
+const mockCreateAgentRunEnvelope = jest.fn(
+  ({ protocol, requestId, receivedAt, principal, payload }) => ({
+    version: 1,
+    protocol,
+    requestId,
+    receivedAt,
+    principal: {
+      userId: principal.id,
+      ...(principal.role != null && { role: principal.role }),
+      ...(principal.tenantId != null && { tenantId: principal.tenantId }),
+    },
+    payload: JSON.parse(JSON.stringify(payload)),
+  }),
+);
+const mockBuildSkillPrimedIdsByName = jest.fn((manualSkillPrimes, alwaysApplySkillPrimes) => {
+  const primed = {};
+  for (const skill of alwaysApplySkillPrimes ?? []) {
+    primed[skill.name] = skill._id.toString();
+  }
+  for (const skill of manualSkillPrimes ?? []) {
+    primed[skill.name] = skill._id.toString();
+  }
+  return Object.keys(primed).length > 0 ? primed : undefined;
+});
+const mockEnrichWithSkillConfigurable = jest.fn((result) => result);
+const mockBuildAgentToolContext = jest.fn(({ agent, config }) => ({
+  agent,
+  toolRegistry: config.toolRegistry,
+  userMCPAuthMap: config.userMCPAuthMap,
+  tool_resources: config.tool_resources,
+  actionsEnabled: config.actionsEnabled,
+  accessibleSkillIds: config.accessibleSkillIds,
+  activeSkillNames: config.activeSkillNames,
+  codeEnvAvailable: config.codeEnvAvailable,
+  skillAuthoringAvailable: config.skillAuthoringAvailable,
+  fileAuthoringToolNames: config.fileAuthoringToolNames,
+  skillPrimedIdsByName:
+    mockBuildSkillPrimedIdsByName(config.manualSkillPrimes, config.alwaysApplySkillPrimes) ?? {},
+}));
+const mockEnrichLoadedToolsWithAgentContext = jest.fn(({ result, req, ctx }) =>
+  mockEnrichWithSkillConfigurable({
+    result,
+    context: {
+      req,
+      accessibleSkillIds: ctx.accessibleSkillIds,
+      codeEnvAvailable: ctx.codeEnvAvailable === true,
+      skillPrimedIdsByName: ctx.skillPrimedIdsByName,
+      activeSkillNames: ctx.activeSkillNames,
+      skillAuthoringAvailable: ctx.skillAuthoringAvailable === true,
+      fileAuthoringToolNames: ctx.fileAuthoringToolNames,
+    },
+  }),
+);
+const mockCanAuthorSkillFiles = jest.fn(
+  ({ scopedEditableSkillIds = [], skillCreateAllowed }) =>
+    scopedEditableSkillIds.length > 0 || skillCreateAllowed === true,
+);
+const mockGetSkillToolDeps = jest.fn(() => ({}));
 
 jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => 'mock-nanoid-123'),
@@ -34,12 +100,18 @@ jest.mock('@librechat/agents', () => ({
 }));
 
 jest.mock('@librechat/api', () => ({
+  /** Pass-through: the controller strips UI-only activity-label parts
+   *  before SDK formatting; the mock must expose it like any other used
+   *  export or the call throws before the assertions run. */
+  stripActivityLabelParts: jest.fn((payload) => payload),
   writeSSE: jest.fn(),
   createRun: jest.fn().mockResolvedValue({
     processStream: mockProcessStream,
   }),
   createChunk: jest.fn().mockReturnValue({}),
   buildToolSet: jest.fn().mockReturnValue(new Set()),
+  AgentRunEnvelopeError: MockAgentRunEnvelopeError,
+  createAgentRunEnvelope: (...args) => mockCreateAgentRunEnvelope(...args),
   scopeSkillIds: jest.fn().mockImplementation((ids) => ids),
   resolveAgentScopedSkillIds: jest
     .fn()
@@ -61,6 +133,7 @@ jest.mock('@librechat/api', () => ({
   createErrorResponse: jest.fn(),
   getTransactionsConfig: mockGetTransactionsConfig,
   recordCollectedUsage: mockRecordCollectedUsage,
+  createSubagentUsageSink: jest.fn().mockReturnValue(jest.fn()),
   extractManualSkills: jest.fn().mockReturnValue(undefined),
   injectSkillPrimes: jest.fn().mockReturnValue({
     initialMessages: [],
@@ -88,6 +161,7 @@ jest.mock('@librechat/api', () => ({
   resolveRecursionLimit: jest.fn().mockReturnValue(50),
   createToolExecuteHandler: jest.fn().mockReturnValue({ handle: jest.fn() }),
   isChatCompletionValidationFailure: jest.fn().mockReturnValue(false),
+  findPiiMatchInMessages: jest.fn().mockReturnValue(null),
   discoverConnectedAgents: jest.fn().mockResolvedValue({
     agentConfigs: new Map(),
     edges: [],
@@ -104,6 +178,17 @@ jest.mock('~/server/services/Files/permissions', () => ({
   filterFilesByAgentAccess: jest.fn(),
 }));
 
+jest.mock('~/server/services/Endpoints/agents/skillDeps', () => ({
+  getSkillToolDeps: mockGetSkillToolDeps,
+  getSkillDbMethods: jest.fn(() => ({})),
+  canAuthorSkillFiles: mockCanAuthorSkillFiles,
+  withDeploymentSkillIds: jest.fn((ids = []) => ids),
+  enrichWithSkillConfigurable: mockEnrichWithSkillConfigurable,
+  buildSkillPrimedIdsByName: mockBuildSkillPrimedIdsByName,
+  buildAgentToolContext: mockBuildAgentToolContext,
+  enrichLoadedToolsWithAgentContext: mockEnrichLoadedToolsWithAgentContext,
+}));
+
 jest.mock('~/cache', () => ({
   logViolation: jest.fn(),
 }));
@@ -111,6 +196,8 @@ jest.mock('~/cache', () => ({
 jest.mock('~/server/services/ToolService', () => ({
   loadAgentTools: jest.fn().mockResolvedValue([]),
   loadToolsForExecution: jest.fn().mockResolvedValue([]),
+  isFatalAgentInitializationError: (error) =>
+    ['AGENT_EXPECTED_MCP_TOOLS_UNAVAILABLE', 'resource_recovery_required'].includes(error?.code),
 }));
 
 const mockGetMultiplier = jest.fn().mockReturnValue(1);
@@ -270,6 +357,155 @@ describe('OpenAIChatCompletionController', () => {
     });
   });
 
+  describe('remote-agent file authorization', () => {
+    it('threads the remote-agent permission boundary through initialization and tool loading', async () => {
+      const { initializeAgent, createToolExecuteHandler } = require('@librechat/api');
+      const { loadAgentTools, loadToolsForExecution } = require('~/server/services/ToolService');
+      const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
+
+      await OpenAIChatCompletionController(req, res);
+
+      const [initializeParams, dbMethods] = initializeAgent.mock.calls.at(-1);
+      const filterParams = {
+        files: [{ file_id: 'owner-file', user: 'agent-owner' }],
+        userId: 'user-123',
+        role: 'USER',
+        agentId: 'agent-123',
+      };
+      await dbMethods.filterFilesByAgentAccess(filterParams);
+      expect(filterFilesByAgentAccess).toHaveBeenLastCalledWith({
+        ...filterParams,
+        resourceType: ResourceType.REMOTE_AGENT,
+      });
+
+      await initializeParams.loadTools({
+        agentId: 'agent-123',
+        tools: ['file_search'],
+        provider: 'openAI',
+        model: 'gpt-4',
+        tool_resources: { file_search: { file_ids: ['owner-file'] } },
+      });
+      expect(loadAgentTools).toHaveBeenLastCalledWith(
+        expect.objectContaining({ agentResourceType: ResourceType.REMOTE_AGENT }),
+      );
+
+      const toolExecuteOptions = createToolExecuteHandler.mock.calls.at(-1)[0];
+      await toolExecuteOptions.loadTools(['file_search'], 'agent-123');
+      expect(loadToolsForExecution).toHaveBeenLastCalledWith(
+        expect.objectContaining({ agentResourceType: ResourceType.REMOTE_AGENT }),
+      );
+    });
+
+    it('returns 503 when an agent expects MCP tools but resolves none', async () => {
+      const { initializeAgent } = require('@librechat/api');
+      const { loadAgentTools } = require('~/server/services/ToolService');
+      const toolError = Object.assign(new Error('Expected MCP tools are unavailable'), {
+        code: 'AGENT_EXPECTED_MCP_TOOLS_UNAVAILABLE',
+        status: 503,
+        statusCode: 503,
+      });
+      loadAgentTools.mockRejectedValueOnce(toolError);
+      initializeAgent.mockImplementationOnce(async ({ req, res, loadTools, agent }) => {
+        await loadTools({
+          req,
+          res,
+          tools: ['run_query_mcp_warehouse'],
+          model: agent.model,
+          agentId: agent.id,
+          provider: agent.provider,
+        });
+      });
+
+      await OpenAIChatCompletionController(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(503);
+    });
+
+    it('returns the resource recovery status and code before model invocation', async () => {
+      const { createErrorResponse, initializeAgent } = require('@librechat/api');
+      const { loadAgentTools } = require('~/server/services/ToolService');
+      const toolError = Object.assign(new Error('resource recovery required'), {
+        code: ErrorTypes.RESOURCE_RECOVERY_REQUIRED,
+        status: 409,
+        statusCode: 409,
+      });
+      loadAgentTools.mockRejectedValueOnce(toolError);
+      initializeAgent.mockImplementationOnce(async ({ req, res, loadTools, agent }) => {
+        await loadTools({
+          req,
+          res,
+          tools: ['execute_code'],
+          model: agent.model,
+          agentId: agent.id,
+          provider: agent.provider,
+        });
+      });
+
+      await OpenAIChatCompletionController(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(createErrorResponse).toHaveBeenCalledWith(
+        'resource recovery required',
+        'invalid_request_error',
+        ErrorTypes.RESOURCE_RECOVERY_REQUIRED,
+      );
+    });
+  });
+
+  describe('execution envelope', () => {
+    it('creates the portable run input before agent initialization', async () => {
+      req.user = {
+        id: 'user-123',
+        role: 'USER',
+        tenantId: 'tenant-123',
+        federatedTokens: { access_token: 'secret' },
+      };
+      const requestBody = {
+        ...req.body,
+        ephemeralAgent: { skills: true },
+        manualSkills: ['review-code'],
+        timezone: 'America/New_York',
+      };
+      req.body = requestBody;
+      const { validateRequest, initializeAgent } = require('@librechat/api');
+      validateRequest.mockReturnValueOnce({ request: requestBody });
+
+      await OpenAIChatCompletionController(req, res);
+
+      expect(mockCreateAgentRunEnvelope).toHaveBeenCalledWith(
+        expect.objectContaining({
+          protocol: 'chat.completions',
+          principal: req.user,
+          payload: requestBody,
+          requestId: expect.any(String),
+          receivedAt: expect.any(Number),
+        }),
+      );
+      expect(mockCreateAgentRunEnvelope.mock.invocationCallOrder[0]).toBeLessThan(
+        initializeAgent.mock.invocationCallOrder[0],
+      );
+      expect(req.body).not.toBe(requestBody);
+      expect(req.body).toEqual(requestBody);
+      expect(JSON.stringify(mockCreateAgentRunEnvelope.mock.results[0].value)).not.toContain(
+        'secret',
+      );
+    });
+
+    it('returns a protocol 400 when the envelope rejects a non-JSON payload', async () => {
+      const message = 'payload.max_tokens must contain only finite numbers';
+      const { createErrorResponse, initializeAgent } = require('@librechat/api');
+      mockCreateAgentRunEnvelope.mockImplementationOnce(() => {
+        throw new MockAgentRunEnvelopeError(message);
+      });
+
+      await OpenAIChatCompletionController(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(createErrorResponse).toHaveBeenCalledWith(message, 'invalid_request_error', null);
+      expect(initializeAgent).not.toHaveBeenCalled();
+    });
+  });
+
   describe('token usage recording', () => {
     it('should call recordCollectedUsage after successful non-streaming completion', async () => {
       await OpenAIChatCompletionController(req, res);
@@ -366,6 +602,89 @@ describe('OpenAIChatCompletionController', () => {
       await OpenAIChatCompletionController(req, res);
 
       expect(resolveRecursionLimit).toHaveBeenCalledWith(req.config.endpoints.agents, mockAgent);
+    });
+  });
+
+  describe('sub-agent skill priming', () => {
+    it('passes the sub-agent primed skill IDs into tool execution', async () => {
+      const {
+        initializeAgent,
+        discoverConnectedAgents,
+        createToolExecuteHandler,
+      } = require('@librechat/api');
+      const { loadToolsForExecution } = require('~/server/services/ToolService');
+      const subAgent = { id: 'agent-sub', name: 'Sub Agent' };
+      const subConfig = {
+        id: 'agent-sub',
+        model: 'gpt-4',
+        model_parameters: {},
+        toolRegistry: new Map(),
+        userMCPAuthMap: { sub: { token: 'sub-token' } },
+        tool_resources: { code_interpreter: { file_ids: ['sub-file'] } },
+        actionsEnabled: true,
+        accessibleSkillIds: ['sub-skill-id'],
+        activeSkillNames: ['sub-hidden-skill'],
+        codeEnvAvailable: true,
+        skillAuthoringAvailable: true,
+        fileAuthoringToolNames: ['create_file', 'edit_file'],
+        manualSkillPrimes: [{ name: 'sub-hidden-skill', _id: { toString: () => 'sub-manual-id' } }],
+        alwaysApplySkillPrimes: [
+          { name: 'sub-always-skill', _id: { toString: () => 'sub-always-id' } },
+        ],
+      };
+
+      initializeAgent.mockResolvedValueOnce({
+        id: 'agent-123',
+        model: 'gpt-4',
+        model_parameters: {},
+        toolRegistry: new Map(),
+        edges: [{ source: 'agent-123', target: 'agent-sub' }],
+        accessibleSkillIds: ['primary-skill-id'],
+        activeSkillNames: ['primary-skill'],
+        codeEnvAvailable: false,
+        skillAuthoringAvailable: false,
+        fileAuthoringToolNames: [],
+        manualSkillPrimes: [{ name: 'primary-skill', _id: { toString: () => 'primary-skill-id' } }],
+      });
+      discoverConnectedAgents.mockImplementationOnce(async (_params, deps) => {
+        deps.onAgentInitialized('agent-sub', subAgent, subConfig);
+        return {
+          agentConfigs: new Map([['agent-sub', subConfig]]),
+          edges: [],
+          skippedAgentIds: new Set(),
+          userMCPAuthMap: undefined,
+        };
+      });
+
+      await OpenAIChatCompletionController(req, res);
+
+      const toolExecuteOptions = createToolExecuteHandler.mock.calls.at(-1)[0];
+      await toolExecuteOptions.loadTools(['read_file'], 'agent-sub');
+
+      expect(loadToolsForExecution).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          agent: subAgent,
+          toolRegistry: subConfig.toolRegistry,
+          userMCPAuthMap: subConfig.userMCPAuthMap,
+          tool_resources: subConfig.tool_resources,
+          actionsEnabled: true,
+        }),
+      );
+      expect(mockEnrichWithSkillConfigurable).toHaveBeenLastCalledWith({
+        result: expect.anything(),
+        context: {
+          req,
+          accessibleSkillIds: ['sub-skill-id'],
+          codeEnvAvailable: true,
+          skillPrimedIdsByName: {
+            'sub-always-skill': 'sub-always-id',
+            'sub-hidden-skill': 'sub-manual-id',
+          },
+          activeSkillNames: ['sub-hidden-skill'],
+          skillAuthoringAvailable: true,
+          fileAuthoringToolNames: ['create_file', 'edit_file'],
+        },
+      });
     });
   });
 });

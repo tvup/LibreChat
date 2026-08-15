@@ -52,5 +52,6 @@ router.use('/roles', require('./roles'));
 router.use('/config', require('./config'));
 router.use('/grants', require('./grants'));
 router.use('/groups', require('./groups'));
+router.use('/skills', require('./skills'));
 
 module.exports = router;

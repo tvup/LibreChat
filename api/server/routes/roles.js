@@ -1,7 +1,8 @@
 const express = require('express');
-const { logger } = require('@librechat/data-schemas');
-const { roleDefaults } = require('librechat-data-provider');
+const { logger, SystemCapabilities } = require('@librechat/data-schemas');
+const { roleDefaults, SystemRoles } = require('librechat-data-provider');
 const { getRoleByName } = require('~/models');
+const { hasCapability } = require('~/server/middleware/roles/capabilities');
 const { requireJwtAuth } = require('~/server/middleware');
 
 /**
@@ -21,6 +22,30 @@ router.get('/:roleName', async (req, res) => {
   const { roleName: paramRoleName } = req.params;
   try {
     const roleName = paramRoleName.toUpperCase();
+    const isOwnRole = req.user?.role === roleName;
+    const isDefaultRole = Object.hasOwn(roleDefaults, roleName);
+    /** READ_ROLES only gates reading other roles; own role and non-admin default roles skip the probe */
+    const requiresReadRoles = !isOwnRole && (roleName === SystemRoles.ADMIN || !isDefaultRole);
+    if (requiresReadRoles) {
+      let hasReadRoles = false;
+      try {
+        hasReadRoles = await hasCapability(
+          {
+            id: req.user?.id ?? req.user?._id?.toString() ?? '',
+            role: req.user?.role ?? '',
+            tenantId: req.user?.tenantId,
+            idOnTheSource: req.user?.idOnTheSource ?? null,
+          },
+          SystemCapabilities.READ_ROLES,
+        );
+      } catch (err) {
+        logger.warn(`[GET /roles/:roleName] capability check failed: ${err.message}`);
+      }
+      if (!hasReadRoles) {
+        return res.status(403).send({ message: 'Unauthorized' });
+      }
+    }
+
     const role = await getRoleByName(roleName, '-_id -__v');
     if (!role) {
       const defaultRole = roleDefaults[roleName];

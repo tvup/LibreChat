@@ -73,9 +73,46 @@ const socialLogin =
         return cb(error);
       }
 
+      const passResult = (user) =>
+        refreshToken && provider === 'google' ? cb(null, user, { refreshToken }) : cb(null, user);
+
       if (existingUser?.provider === provider) {
+        if (
+          options.existingUsersOnly &&
+          id &&
+          existingUser[providerKey] &&
+          existingUser[providerKey] !== id
+        ) {
+          logger.warn(
+            `[${provider}Login] Rejected admin email fallback for ${email}: stored ${providerKey} does not match`,
+          );
+          const error = new Error(ErrorTypes.AUTH_FAILED);
+          error.code = ErrorTypes.AUTH_FAILED;
+          return cb(error);
+        }
+        if (options.existingUsersOnly && id && !existingUser[providerKey]) {
+          if (existingUser.tenantId) {
+            logger.warn(
+              `[${provider}Login] Admin migrate blocked for tenanted user ${email}: no tenant scope in OAuth callback`,
+            );
+            const tenantError = new Error(ErrorTypes.AUTH_FAILED);
+            tenantError.code = ErrorTypes.AUTH_FAILED;
+            return cb(tenantError);
+          }
+          await updateUser(existingUser._id, { [providerKey]: id });
+          const verified = await findUser({ _id: existingUser._id, [providerKey]: id });
+          if (!verified) {
+            logger.warn(
+              `[${provider}Login] Admin migrate superseded by concurrent write, denying: ${email}`,
+            );
+            const concurrentError = new Error(ErrorTypes.AUTH_FAILED);
+            concurrentError.code = ErrorTypes.AUTH_FAILED;
+            return cb(concurrentError);
+          }
+          existingUser[providerKey] = id;
+        }
         await handleExistingUser(existingUser, avatarUrl, appConfig, email);
-        return cb(null, existingUser);
+        return passResult(existingUser);
       } else if (existingUser) {
         /**
          * Account linking: user exists with different provider but same email.
@@ -133,7 +170,7 @@ const socialLogin =
         emailVerified,
         appConfig,
       });
-      return cb(null, newUser);
+      return passResult(newUser);
     } catch (err) {
       logger.error(`[${provider}Login]`, err);
       return cb(err);

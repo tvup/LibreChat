@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, useMemo, memo, lazy, Suspense, useRef } from 'react';
-import { useSetRecoilState, useRecoilValue } from 'recoil';
 import { useMediaQuery } from '@librechat/client';
+import { useSetRecoilState, useRecoilValue } from 'recoil';
 import { PermissionTypes, Permissions } from 'librechat-data-provider';
 import type { InfiniteQueryObserverResult } from '@tanstack/react-query';
 import type { ConversationListResponse } from 'librechat-data-provider';
@@ -13,6 +13,8 @@ import {
   useNavScrolling,
 } from '~/hooks';
 import { useConversationsInfiniteQuery, useTitleGeneration } from '~/data-provider';
+import ProjectsSection from '~/components/Conversations/ProjectsSection';
+import FavoritesList from '~/components/Nav/Favorites/FavoritesList';
 import { Conversations } from '~/components/Conversations';
 import SearchBar from '~/components/Nav/SearchBar';
 import store from '~/store';
@@ -27,7 +29,6 @@ const ConversationsSection = memo(() => {
   useTitleGeneration(isAuthenticated);
 
   const [isChatsExpanded, setIsChatsExpanded] = useLocalStorage('chatsExpanded', true);
-  const [showLoading, setShowLoading] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
 
   const hasAccessToBookmarks = useHasAccess({
@@ -61,7 +62,6 @@ const ConversationsSection = memo(() => {
   const conversationsRef = useRef<List | null>(null);
 
   const { moveToTop } = useNavScrolling<ConversationListResponse>({
-    setShowLoading,
     fetchNextPage: async (options?) => {
       if (computedHasNextPage) {
         return fetchNextPage(options);
@@ -104,7 +104,7 @@ const ConversationsSection = memo(() => {
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col overflow-hidden pb-3"
+      className="flex h-full min-h-0 flex-col overflow-hidden pb-3 pt-2"
       role="region"
       aria-label={localize('com_ui_chat_history')}
     >
@@ -116,6 +116,12 @@ const ConversationsSection = memo(() => {
         )}
         {search.enabled && <SearchBar isSmallScreen={isSmallScreen} />}
       </div>
+      {!search.query && (
+        <div className="px-3">
+          <FavoritesList isSmallScreen={isSmallScreen} toggleNav={toggleNav} />
+        </div>
+      )}
+      {!search.query && <ProjectsSection toggleNav={toggleNav} isAuthenticated={isAuthenticated} />}
       <div className="flex min-h-0 flex-grow flex-col overflow-hidden">
         <Conversations
           conversations={conversations}
@@ -123,10 +129,11 @@ const ConversationsSection = memo(() => {
           toggleNav={toggleNav}
           containerRef={conversationsRef}
           loadMoreConversations={loadMoreConversations}
-          isLoading={isFetchingNextPage || showLoading || isLoading}
+          isLoading={isFetchingNextPage || isLoading}
           isSearchLoading={isSearchLoading}
           isChatsExpanded={isChatsExpanded}
           setIsChatsExpanded={setIsChatsExpanded}
+          showFavorites={false}
         />
       </div>
     </div>

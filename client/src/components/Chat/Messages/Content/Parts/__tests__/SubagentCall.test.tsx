@@ -8,15 +8,14 @@ import type {
   SubagentAggregatorState,
 } from '~/utils/subagentContent';
 import type { SubagentProgress } from '~/store/subagents';
-
 import {
   foldSubagentEvent,
   foldSubagentEventIntoTicker,
   initSubagentAggregatorState,
   initSubagentTickerState,
 } from '~/utils/subagentContent';
-import { subagentProgressByToolCallId } from '~/store/subagents';
 import SubagentCall, { SUBAGENT_TICKER_THROTTLE_MS } from '../SubagentCall';
+import { subagentProgressByToolCallId } from '~/store/subagents';
 
 jest.mock('~/hooks', () => ({
   useLocalize:
@@ -85,6 +84,14 @@ jest.mock('../Attachment', () => ({
 
 jest.mock('@librechat/client', () => ({
   __esModule: true,
+  Button: ({
+    children,
+    variant: _variant,
+    size: _size,
+    ...props
+  }: React.ComponentProps<'button'> & { variant?: string; size?: string }) => (
+    <button {...props}>{children}</button>
+  ),
   OGDialog: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   OGDialogContent: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="dialog-content">{children}</div>
@@ -125,6 +132,11 @@ jest.mock('~/components/Share/MessageIcon', () => ({
     <span data-testid="agent-icon">{agent?.name ?? ''}</span>
   ),
 }));
+
+jest.mock('~/hooks/MCP', () => {
+  const mcpServerNames: string[] = [];
+  return { useMCPServerNames: () => mcpServerNames };
+});
 
 jest.mock('~/utils', () => ({
   ...jest.requireActual('~/utils/groupToolCalls'),
@@ -622,7 +634,7 @@ describe('SubagentCall — dialog content', () => {
     );
     openSubagentDialog();
     expect(screen.getByText('raw final text')).toBeInTheDocument();
-    rerender(<RecoilRoot />);
+    rerender(<RecoilRoot>{null}</RecoilRoot>);
   });
 
   it('renders persistedContent parts when no live events are available (page-refresh flow)', () => {

@@ -49,6 +49,7 @@ export interface IUser extends Document {
   expiresAt?: Date;
   preferredName?: string;
   termsAccepted?: boolean;
+  termsAcceptedAt?: Date | null;
   personalization?: {
     memories?: boolean;
   };
@@ -95,6 +96,7 @@ export interface UpdateUserRequest {
   twoFactorEnabled?: boolean;
   preferredName?: string;
   termsAccepted?: boolean;
+  termsAcceptedAt?: Date | null;
   personalization?: {
     memories?: boolean;
   };
