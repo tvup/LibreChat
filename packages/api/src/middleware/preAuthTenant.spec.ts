@@ -1,6 +1,6 @@
-import { getTenantId, logger } from '@librechat/data-schemas';
-import { preAuthTenantMiddleware } from './preAuthTenant';
+import { getTenantId, getUserId, getRequestId, logger } from '@librechat/data-schemas';
 import type { Request, Response, NextFunction } from 'express';
+import { preAuthTenantMiddleware } from './preAuthTenant';
 
 jest.mock('@librechat/data-schemas', () => ({
   ...jest.requireActual('@librechat/data-schemas'),
@@ -13,7 +13,13 @@ jest.mock('@librechat/data-schemas', () => ({
 }));
 
 describe('preAuthTenantMiddleware', () => {
-  let req: { headers: Record<string, string | string[] | undefined>; ip?: string; path?: string };
+  let req: {
+    headers: Record<string, string | string[] | undefined>;
+    ip?: string;
+    path?: string;
+    tenantId?: string;
+    user?: { id: string; tenantId: string };
+  };
   let res: Partial<Response>;
 
   beforeEach(() => {
@@ -52,6 +58,30 @@ describe('preAuthTenantMiddleware', () => {
 
     preAuthTenantMiddleware(req as Request, res as Response, capturedNext);
     expect(capturedTenantId).toBe('acme-corp');
+  });
+
+  it('propagates request ID from pre-auth routes', () => {
+    req.headers = { 'x-request-id': 'req-preauth' };
+    let capturedRequestId: string | undefined;
+    const capturedNext: NextFunction = () => {
+      capturedRequestId = getRequestId();
+    };
+
+    preAuthTenantMiddleware(req as Request, res as Response, capturedNext);
+    expect(capturedRequestId).toBe('req-preauth');
+  });
+
+  it('does not inherit request identity before authentication', () => {
+    req.tenantId = 'untrusted-tenant';
+    req.user = { id: 'untrusted-user', tenantId: 'untrusted-tenant' };
+    let capturedContext: { tenantId?: string; userId?: string } = {};
+    const capturedNext: NextFunction = () => {
+      capturedContext = { tenantId: getTenantId(), userId: getUserId() };
+    };
+
+    preAuthTenantMiddleware(req as Request, res as Response, capturedNext);
+
+    expect(capturedContext).toEqual({ tenantId: undefined, userId: undefined });
   });
 
   it('ignores __SYSTEM__ sentinel and logs warning', () => {

@@ -18,15 +18,46 @@ services:
       - HOST=0.0.0.0
       - MONGO_URI=mongodb://mongodb:27017/LibreChat
       - MEILI_HOST=http://meilisearch:7700
+      - LIBRECHAT_TEMP_CREDENTIALS_PATH=/app/data/.env.temp
       - RAG_PORT=${RAG_PORT:-8000}
       - RAG_API_URL=http://rag_api:${RAG_PORT:-8000}
+      - CONFIG_BYPASS_VALIDATION=true
+      - PROXY=${PROXY:-}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,::1},${no_proxy:-},mongodb,chat-mongodb,meilisearch,chat-meilisearch,rag_api,vectordb,host.docker.internal
+      - http_proxy=${http_proxy:-}
+      - https_proxy=${https_proxy:-}
+      - no_proxy=${no_proxy:-localhost,127.0.0.1,::1},${NO_PROXY:-},mongodb,chat-mongodb,meilisearch,chat-meilisearch,rag_api,vectordb,host.docker.internal
     volumes:
       - type: bind
         source: ./.env
         target: /app/.env
+      - ./librechat.yaml:/app/librechat.yaml
       - ./images:/app/client/public/images
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      - ./packages/api/dist:/app/packages/api/dist
+      - ./packages/data-provider/dist:/app/packages/data-provider/dist
+      - ./packages/data-schemas/dist:/app/packages/data-schemas/dist
+      - ./api/server/routes/admin:/app/api/server/routes/admin
+      - ./api/server/routes/config.js:/app/api/server/routes/config.js
+      - ./api/server/routes/index.js:/app/api/server/routes/index.js
+      - ./api/server/index.js:/app/api/server/index.js
+      - ./api/server/controllers/ModelController.js:/app/api/server/controllers/ModelController.js
+      - ./api/server/controllers/EndpointController.js:/app/api/server/controllers/EndpointController.js
+      - ./api/strategies/socialLogin.js:/app/api/strategies/socialLogin.js
+      - ./api/server/routes/user.js:/app/api/server/routes/user.js
+      - ./client/dist:/app/client/dist
+      - ./client/public/pages:/app/client/public/pages
+      - ./api/app/clients/tools/structured/FluxAPI.js:/app/api/app/clients/tools/structured/FluxAPI.js
+      - ./api/server/controllers/agents/callbacks.js:/app/api/server/controllers/agents/callbacks.js
+      - ./api/server/controllers/agents/client.js:/app/api/server/controllers/agents/client.js
+      - ./api/app/clients/tools/structured/StableDiffusion.js:/app/api/app/clients/tools/structured/StableDiffusion.js
+      - ./api/server/services/Files/Audio/TTSService.js:/app/api/server/services/Files/Audio/TTSService.js
+      - /home/tvup/Projects/atlascloud-mcp:/app/mcp/atlascloud:ro
+      - ./skill:/app/skill
+      - librechat-data:/app/data
   mongodb:
     container_name: chat-mongodb
     image: mongo:8.0.20
@@ -70,3 +101,4 @@ services:
 
 volumes:
   pgdata2:
+  librechat-data:

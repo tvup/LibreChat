@@ -1,122 +1,22 @@
-import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import { useMemo } from 'react';
 import { useRecoilValue } from 'recoil';
 import { SquareTerminal } from 'lucide-react';
 import type { TAttachment } from 'librechat-data-provider';
+import { parseBackgroundHandle, splitBackgroundAttachments } from './handle';
 import ProgressText from '~/components/Chat/Messages/Content/ProgressText';
-import { useProgress, useLocalize, useExpandCollapse } from '~/hooks';
+import { sandboxStartingByToolCallId } from '~/store';
+import useLazyHighlight from './useLazyHighlight';
+import useToolCallState from './useToolCallState';
 import CodeWindowHeader from './CodeWindowHeader';
 import { AttachmentGroup } from './Attachment';
+import { useToolCallIntent } from './intent';
+import { useLocalize } from '~/hooks';
 import Stdout from './Stdout';
 import { cn } from '~/utils';
-import store from '~/store';
 
 interface ParsedArgs {
   lang?: string;
   code?: string;
-}
-
-interface HastText {
-  type: 'text';
-  value: string;
-}
-
-interface HastElement {
-  type: 'element';
-  tagName: string;
-  properties?: { className?: string[] };
-  children?: HastNode[];
-}
-
-type HastNode = HastText | HastElement;
-
-function hastToReact(nodes: HastNode[]): React.ReactNode[] {
-  return nodes.map((node, i) => {
-    if (node.type === 'text') {
-      return node.value;
-    }
-    return React.createElement(
-      node.tagName,
-      { key: i, className: node.properties?.className?.join(' ') },
-      node.children ? hastToReact(node.children) : undefined,
-    );
-  });
-}
-
-type LowlightModule = typeof import('lowlight');
-
-/** Lazy-loaded lowlight singleton — only fetched when syntax highlighting is first needed. */
-let lowlightPromise: Promise<LowlightModule> | null = null;
-let lowlightModule: LowlightModule | null = null;
-
-function loadLowlight(): Promise<LowlightModule> {
-  if (lowlightModule) {
-    return Promise.resolve(lowlightModule);
-  }
-  if (!lowlightPromise) {
-    lowlightPromise = import('lowlight').then((mod) => {
-      lowlightModule = mod;
-      return mod;
-    });
-  }
-  return lowlightPromise;
-}
-
-function highlightCode(mod: LowlightModule, code: string, lang: string): React.ReactNode[] {
-  try {
-    const tree = mod.lowlight.registered(lang)
-      ? mod.lowlight.highlight(lang, code)
-      : mod.lowlight.highlightAuto(code);
-    return hastToReact(tree.children as HastNode[]);
-  } catch {
-    return [code];
-  }
-}
-
-/** Hook that lazily loads lowlight and returns highlighted nodes once ready. */
-function useLazyHighlight(code: string | undefined, lang: string): React.ReactNode[] | null {
-  const [highlighted, setHighlighted] = useState<React.ReactNode[] | null>(() => {
-    if (!code || !lowlightModule) {
-      return null;
-    }
-    return highlightCode(lowlightModule, code, lang);
-  });
-  const prevKey = useRef('');
-
-  useEffect(() => {
-    const key = `${lang}\0${code ?? ''}`;
-    if (key === prevKey.current) {
-      return;
-    }
-    prevKey.current = key;
-
-    if (!code) {
-      setHighlighted(null);
-      return;
-    }
-
-    if (lowlightModule) {
-      setHighlighted(highlightCode(lowlightModule, code, lang));
-      return;
-    }
-
-    let cancelled = false;
-    loadLowlight()
-      .then((mod) => {
-        if (!cancelled) {
-          setHighlighted(highlightCode(mod, code, lang));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setHighlighted([code]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [code, lang]);
-
-  return highlighted;
 }
 
 export function useParseArgs(args?: string | Record<string, unknown>): ParsedArgs | null {
@@ -152,7 +52,7 @@ export function useParseArgs(args?: string | Record<string, unknown>): ParsedArg
   }, [args]);
 }
 
-const ERROR_PATTERNS = /^(Traceback|Error:|Exception:|.*Error:)/m;
+export const ERROR_PATTERNS = /^(Traceback|Error:|Exception:|.*Error:)/m;
 
 export default function ExecuteCode({
   isSubmitting,
@@ -160,52 +60,74 @@ export default function ExecuteCode({
   args,
   output = '',
   attachments,
+  hideAttachments = false,
+  onExpand,
+  toolCallId,
 }: {
   initialProgress: number;
   isSubmitting: boolean;
   args?: string | Record<string, unknown>;
   output?: string;
   attachments?: TAttachment[];
+  hideAttachments?: boolean;
+  onExpand?: () => void;
+  toolCallId?: string;
 }) {
   const localize = useLocalize();
-  const hasOutput = output.length > 0;
-  const autoExpand = useRecoilValue(store.autoExpandTools);
-
   const { lang = 'py', code } = useParseArgs(args) ?? ({} as ParsedArgs);
-  const hasContent = !!code || hasOutput;
-  const [showCode, setShowCode] = useState(() => autoExpand && hasContent);
-  const { style: expandStyle, ref: expandRef } = useExpandCollapse(showCode);
+  /** Model-authored live label, streamed as the first args key; persists as
+   *  the settled label (completion is a UI state, not a tense change). */
+  const intent = useToolCallIntent(args);
+  const sandboxStarting = useRecoilValue(sandboxStartingByToolCallId(toolCallId ?? ''));
 
-  useEffect(() => {
-    if (autoExpand && hasContent) {
-      setShowCode(true);
-    }
-  }, [autoExpand, hasContent]);
-  const progress = useProgress(initialProgress);
+  const { showCode, toggleCode, expandStyle, expandRef, progress, cancelled, hasError, hasOutput } =
+    useToolCallState(initialProgress, isSubmitting, output, !!code, onExpand);
 
   const highlighted = useLazyHighlight(code, lang);
-
   const outputHasError = useMemo(() => ERROR_PATTERNS.test(output), [output]);
-
-  const toggleCode = useCallback(() => setShowCode((prev) => !prev), [setShowCode]);
-
-  const cancelled = !isSubmitting && progress < 1;
+  /** A backgrounded call's persisted output stays the dispatch handle until
+   *  the detached run settles and patches it; render a background state
+   *  instead of the handle JSON. Completion arrives live as the status marker
+   *  attachment (also covers stdout-only runs) or as harvested files. */
+  const backgroundHandle = useMemo(() => parseBackgroundHandle(output), [output]);
+  const { fileAttachments, backgroundStatus } = useMemo(
+    () => splitBackgroundAttachments(attachments, toolCallId),
+    [attachments, toolCallId],
+  );
+  const backgroundFailed = backgroundHandle != null && backgroundStatus === 'error';
+  const backgroundFinishedText = backgroundHandle
+    ? localize(
+        backgroundStatus != null || (fileAttachments?.length ?? 0) > 0
+          ? 'com_ui_background_finished'
+          : 'com_ui_background_running',
+      )
+    : null;
 
   return (
     <>
-      <div className="relative my-1.5 flex size-5 shrink-0 items-center gap-2.5">
+      <div className="relative my-1.5 flex h-5 shrink-0 items-center gap-2.5">
         <ProgressText
           progress={progress}
           onClick={toggleCode}
-          inProgressText={localize('com_ui_analyzing')}
+          inProgressText={
+            intent ??
+            (sandboxStarting ? localize('com_ui_sandbox_starting') : localize('com_ui_analyzing'))
+          }
           finishedText={
-            cancelled ? localize('com_ui_cancelled') : localize('com_ui_analyzing_finished')
+            cancelled
+              ? localize('com_ui_cancelled')
+              : (backgroundFinishedText ?? intent ?? localize('com_ui_analyzing_finished'))
+          }
+          errorSuffix={
+            (hasError && !cancelled) || backgroundFailed
+              ? localize('com_ui_tool_failed')
+              : undefined
           }
           icon={
             <SquareTerminal
               className={cn(
                 'size-4 shrink-0 text-text-secondary',
-                progress < 1 && !cancelled && 'animate-pulse',
+                progress < 1 && !cancelled && !hasError && 'animate-pulse',
               )}
               aria-hidden="true"
             />
@@ -224,7 +146,7 @@ export default function ExecuteCode({
                 <code className={`hljs language-${lang} !whitespace-pre`}>{highlighted}</code>
               </pre>
             )}
-            {hasOutput && (
+            {hasOutput && backgroundHandle == null && (
               <div
                 className={cn(
                   'bg-surface-primary-alt p-4 text-xs dark:bg-transparent',
@@ -237,7 +159,7 @@ export default function ExecuteCode({
                 <div
                   className={cn(
                     'max-h-[200px] overflow-auto',
-                    outputHasError ? 'text-red-600 dark:text-red-400' : 'text-text-primary',
+                    outputHasError ? 'text-status-error' : 'text-text-primary',
                   )}
                 >
                   <Stdout output={output} />
@@ -247,7 +169,9 @@ export default function ExecuteCode({
           </div>
         </div>
       </div>
-      {attachments && attachments.length > 0 && <AttachmentGroup attachments={attachments} />}
+      {!hideAttachments && fileAttachments && fileAttachments.length > 0 && (
+        <AttachmentGroup attachments={fileAttachments} />
+      )}
     </>
   );
 }

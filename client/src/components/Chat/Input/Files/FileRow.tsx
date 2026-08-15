@@ -9,6 +9,15 @@ import FileContainer from './FileContainer';
 import { useLocalize } from '~/hooks';
 import Image from './Image';
 
+/**
+ * Shared wrapper with a stable module-scope identity. Passing an inline arrow as
+ * `Wrapper` makes it a new component type on every render, so React remounts the
+ * whole row and any focused control inside it loses focus.
+ */
+export const FileRowWrapper = ({ children }: { children: React.ReactNode }) => (
+  <div className="flex flex-wrap gap-2">{children}</div>
+);
+
 export default function FileRow({
   files: _files,
   setFiles,
@@ -115,7 +124,7 @@ export default function FileRow({
               if (abortUpload && file.progress < 1) {
                 abortUpload();
               }
-              if (file.progress >= 1) {
+              if (file.progress >= 1 && !file.attached) {
                 showToast({
                   message: localize('com_ui_deleting_file'),
                   status: 'info',

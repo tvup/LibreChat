@@ -4,8 +4,8 @@ const path = require('path');
 const axios = require('axios');
 const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
-const { Tool } = require('@langchain/core/tools');
 const { logger } = require('@librechat/data-schemas');
+const { Tool } = require('@librechat/agents/langchain/tools');
 const { FileContext, ContentTypes } = require('librechat-data-provider');
 const { getBasePath } = require('@librechat/api');
 const paths = require('~/config/paths');
@@ -43,9 +43,16 @@ class StableDiffusionAPI extends Tool {
     this.returnMetadata = fields.returnMetadata ?? false;
     /** @type {boolean} */
     this.isAgent = fields.isAgent;
+    this.fileStrategy = fields.fileStrategy;
+
     if (this.isAgent) {
       /** Ensures LangChain maps [content, artifact] tuple to ToolMessage fields instead of serializing it into content. */
       this.responseFormat = 'content_and_artifact';
+    }
+
+    if (fields.processFileURL) {
+      /** @type {processFileURL} Necessary for output to contain all image metadata. */
+      this.processFileURL = fields.processFileURL.bind(this);
     }
     if (fields.uploadImageBuffer) {
       /** @type {uploadImageBuffer} Necessary for output to contain all image metadata. */
@@ -137,9 +144,13 @@ class StableDiffusionAPI extends Tool {
     const filepath = path.join(imageOutputPath, this.userId, imageName);
     this.relativePath = path.relative(clientPath, imageOutputPath);
 
-    if (!fs.existsSync(path.join(imageOutputPath, this.userId))) {
-      fs.mkdirSync(path.join(imageOutputPath, this.userId), { recursive: true });
+    const userOutputPath = path.join(imageOutputPath, this.userId);
+    if (!fs.existsSync(userOutputPath)) {
+      fs.mkdirSync(userOutputPath, { recursive: true });
     }
+
+    const buffer = Buffer.from(image.split(',', 1)[0], 'base64');
+    const infoText = info.infotexts ? info.infotexts[0] : '';
 
     try {
       if (this.isAgent) {
@@ -152,16 +163,15 @@ class StableDiffusionAPI extends Tool {
           },
         ];
 
+        const file_ids = [file_id];
         const response = [
           {
             type: ContentTypes.TEXT,
-            text: displayMessage,
+            text: displayMessage + `\n\ngenerated_image_id: "${file_ids[0]}"`,
           },
         ];
-        return [response, { content }];
+        return [response, { content, file_ids }];
       }
-
-      const buffer = Buffer.from(image.split(',', 1)[0], 'base64');
       if (this.returnMetadata && this.uploadImageBuffer && this.req) {
         const file = await this.uploadImageBuffer({
           req: this.req,
@@ -178,7 +188,7 @@ class StableDiffusionAPI extends Tool {
           },
         });
 
-        const generationInfo = info.infotexts[0].split('\n').pop();
+        const generationInfo = infoText.split('\n').pop();
         return {
           ...file,
           prompt,
@@ -191,11 +201,7 @@ class StableDiffusionAPI extends Tool {
       }
 
       await sharp(buffer)
-        .withMetadata({
-          iptcpng: {
-            parameters: info.infotexts[0],
-          },
-        })
+        .withMetadata({ iptcpng: { parameters: infoText } })
         .toFile(filepath);
       this.result = this.getMarkdownImageUrl(imageName);
     } catch (error) {

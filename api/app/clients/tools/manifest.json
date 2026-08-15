@@ -91,6 +91,13 @@
     "authConfig": []
   },
   {
+    "name": "Ask User",
+    "pluginKey": "ask_user_question",
+    "description": "Let the agent pause mid-run to ask you a clarifying question and wait for your answer.",
+    "agentsOnly": true,
+    "authConfig": []
+  },
+  {
     "name": "Stable Diffusion",
     "pluginKey": "stable-diffusion",
     "description": "Generate photo-realistic images given any text input.",
@@ -164,6 +171,19 @@
         "label": "Gemini API Key (optional)",
         "description": "Your Google Gemini API Key from <a href='https://aistudio.google.com/app/apikey' target='_blank'>Google AI Studio</a>. Leave blank to use Vertex AI with a service account (GOOGLE_SERVICE_KEY_FILE or api/data/auth.json).",
         "optional": true
+      }
+    ]
+  },
+  {
+    "name": "Atlas Cloud Image Generator",
+    "pluginKey": "atlas-cloud-image",
+    "description": "Generate NSFW images using Atlas Cloud's 15+ NSFW models",
+    "icon": "https://example.com/icon.png",
+    "authConfig": [
+      {
+        "authField": "ATLAS_CLOUD_API_KEY",
+        "label": "Atlas Cloud API Key",
+        "description": "Your Atlas Cloud API key for NSFW image generation"
       }
     ]
   }

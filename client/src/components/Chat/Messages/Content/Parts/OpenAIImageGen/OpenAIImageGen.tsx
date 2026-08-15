@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { AGENT_STYLE_TOOLS } from '.';
 import { PixelCard } from '@librechat/client';
 import type { TAttachment, TFile, TAttachmentMetadata } from 'librechat-data-provider';
 import { ToolIcon, isError } from '~/components/Chat/Messages/Content/ToolOutput';
 import Image from '~/components/Chat/Messages/Content/Image';
 import { useProgress, useLocalize } from '~/hooks';
+import { useToolCallIntent } from '../intent';
 import ProgressText from './ProgressText';
-import { AGENT_STYLE_TOOLS } from '.';
 import { scaleImage } from '~/utils';
 
 function computeCancelled(
@@ -31,6 +32,7 @@ export default function OpenAIImageGen({
   args: _args = '',
   output,
   attachments,
+  hideAttachments = false,
 }: {
   initialProgress: number;
   isSubmitting?: boolean;
@@ -38,8 +40,12 @@ export default function OpenAIImageGen({
   args: string | Record<string, unknown>;
   output?: string | null;
   attachments?: TAttachment[];
+  hideAttachments?: boolean;
 }) {
   const localize = useLocalize();
+  /** Model-authored live label (injected when the tool is opted into
+   *  describe_intent); wins over the phase texts. */
+  const intent = useToolCallIntent(_args);
   const isAgentStyle = toolName != null && AGENT_STYLE_TOOLS.has(toolName);
   const [agentProgress, setAgentProgress] = useState(initialProgress);
   const legacyProgress = useProgress(isAgentStyle ? 1 : initialProgress);
@@ -219,14 +225,14 @@ export default function OpenAIImageGen({
           if (cancelled) {
             return localize('com_ui_cancelled');
           }
-          return localize('com_ui_image_created');
+          return intent ?? localize('com_ui_image_created');
         })()}
       </span>
       <div className="relative my-1 flex h-5 shrink-0 items-center gap-2">
         <ToolIcon type="image_gen" isAnimating={isInProgress} />
-        <ProgressText progress={progress} error={cancelled} toolName={toolName} />
+        <ProgressText progress={progress} error={cancelled} toolName={toolName} intent={intent} />
       </div>
-      {isAgentStyle && (
+      {isAgentStyle && !hideAttachments && (
         <div className="relative mb-2 flex w-full justify-start">
           <div ref={containerRef} className="w-full max-w-lg">
             {dimensions.width !== 'auto' && progress < 1 && (

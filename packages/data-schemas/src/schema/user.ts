@@ -23,7 +23,7 @@ const BackupCodeSchema = new Schema(
   { _id: false },
 );
 
-const userSchema = new Schema<IUser>(
+const userSchema: Schema<IUser> = new Schema<IUser>(
   {
     name: {
       type: String,
@@ -74,6 +74,9 @@ const userSchema = new Schema<IUser>(
     openidId: {
       type: String,
     },
+    openidIssuer: {
+      type: String,
+    },
     samlId: {
       type: String,
     },
@@ -120,9 +123,17 @@ const userSchema = new Schema<IUser>(
       type: Date,
       expires: 604800, // 7 days in seconds
     },
+    preferredName: {
+      type: String,
+      default: '',
+    },
     termsAccepted: {
       type: Boolean,
       default: false,
+    },
+    termsAcceptedAt: {
+      type: Date,
+      default: null,
     },
     personalization: {
       type: {
@@ -145,6 +156,11 @@ const userSchema = new Schema<IUser>(
       ],
       default: [],
     },
+    skillStates: {
+      type: Map,
+      of: Boolean,
+      default: () => new Map(),
+    },
     /** Field for external source identification (for consistency with TPrincipal schema) */
     idOnTheSource: {
       type: String,
@@ -160,6 +176,7 @@ const userSchema = new Schema<IUser>(
 
 userSchema.index({ email: 1, tenantId: 1 }, { unique: true });
 userSchema.index({ role: 1, tenantId: 1 });
+userSchema.index({ idOnTheSource: 1, openidIssuer: 1, tenantId: 1 });
 
 const oAuthIdFields = [
   'googleId',
@@ -173,6 +190,14 @@ const oAuthIdFields = [
 ] as const;
 
 for (const field of oAuthIdFields) {
+  if (field === 'openidId') {
+    userSchema.index(
+      { openidId: 1, openidIssuer: 1, tenantId: 1 },
+      { unique: true, partialFilterExpression: { openidId: { $exists: true } } },
+    );
+    continue;
+  }
+
   userSchema.index(
     { [field]: 1, tenantId: 1 },
     { unique: true, partialFilterExpression: { [field]: { $exists: true } } },

@@ -5,6 +5,7 @@ import { useWatch, useForm, FormProvider } from 'react-hook-form';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
 import {
   Tools,
+  MemoryScope,
   SystemRoles,
   ResourceType,
   EModelEndpoint,
@@ -69,14 +70,24 @@ export function composeAgentUpdatePayload(data: AgentForm, agent_id?: string | n
     provider: _provider,
     agent_ids,
     edges,
+    subagents,
     end_after_tools,
     hide_sequential_outputs,
+    stateful_code_sessions,
     recursion_limit,
     category,
     support_contact,
     tool_options,
+    skills,
+    skills_enabled,
+    memory_scope,
     avatar_action: avatarActionState,
   } = data;
+
+  /* stateful_code_sessions requires Code Interpreter; force it off on save when
+   * execute_code is disabled so a stale opt-in can't silently reactivate later. */
+  const normalizedStatefulCodeSessions =
+    data.execute_code === true ? stateful_code_sessions : false;
 
   const shouldResetAvatar =
     avatarActionState === 'reset' && Boolean(agent_id) && !isEphemeralAgent(agent_id);
@@ -95,12 +106,19 @@ export function composeAgentUpdatePayload(data: AgentForm, agent_id?: string | n
       model_parameters,
       agent_ids,
       edges,
+      subagents,
       end_after_tools,
       hide_sequential_outputs,
+      stateful_code_sessions: normalizedStatefulCodeSessions,
       recursion_limit,
       category,
       support_contact,
       tool_options,
+      skills,
+      skills_enabled,
+      /** A hidden stale 'agent' scope must not survive disabling memory —
+       *  runtime partitioning keys off memory_scope alone. */
+      memory_scope: data.memory === true ? memory_scope : MemoryScope.user,
       ...(shouldResetAvatar ? { avatar: null } : {}),
     },
     provider,
@@ -414,6 +432,9 @@ export default function AgentPanel() {
       if (data.web_search === true) {
         tools.push(Tools.web_search);
       }
+      if (data.memory === true) {
+        tools.push(Tools.memory);
+      }
 
       const { payload: basePayload, provider, model } = composeAgentUpdatePayload(data, agent_id);
 
@@ -480,7 +501,7 @@ export default function AgentPanel() {
     <FormProvider {...methods}>
       <form
         onSubmit={handleSubmit(onSubmit)}
-        className="scrollbar-gutter-stable flex flex-1 flex-col px-3 pb-3"
+        className="scrollbar-gutter-stable flex flex-1 flex-col px-3 pb-3 pt-2"
         aria-label="Agent configuration form"
       >
         <div className="flex-1">

@@ -78,8 +78,19 @@ export function extractEnvVariable(value: string) {
 
 /**
  * Normalize the endpoint name to system-expected value.
+ *
+ * Forken-only: lowercase ALLE provider/endpoint-navne så case-mismatches
+ * mellem yaml-config (`name: 'OpenRouter'`) og code-paths der lowercase'er
+ * (fx `getProviderConfig.providerConfigMap[provider.toLowerCase()]`) ikke
+ * fører til "Provider X not supported"-fejl ved fx summarization-resolve.
+ *
+ * Tidligere lowercase'ede vi kun "ollama"; nu lowercase'er vi alt for
+ * konsistent matching. Fungerer fordi alle brug-sites bruger funktionen
+ * på begge sider af sammenligningen, og ingen kode hard-sammenligner mod
+ * mixed-case literals.
+ *
  * @param name
  */
 export function normalizeEndpointName(name = ''): string {
-  return name.toLowerCase() === 'ollama' ? 'ollama' : name;
+  return name.toLowerCase();
 }

@@ -1,8 +1,8 @@
-import { EModelEndpoint } from 'librechat-data-provider';
+import { ErrorTypes, EModelEndpoint } from 'librechat-data-provider';
 import type { Agent, GraphEdge } from 'librechat-data-provider';
 import type { Response } from 'express';
-import type { ServerRequest } from '~/types';
 import type { InitializedAgent } from './initialize';
+import type { ServerRequest } from '~/types';
 
 jest.mock('@librechat/data-schemas', () => ({
   logger: {
@@ -234,6 +234,75 @@ describe('discoverConnectedAgents', () => {
     expect(mockInitializeAgent).toHaveBeenCalled();
     const initArgs = mockInitializeAgent.mock.calls[0][0];
     expect(initArgs.endpointOption.endpoint).toBe(EModelEndpoint.agents);
+  });
+
+  it('forwards codeEnvAvailable to every handoff initializeAgent call', async () => {
+    /* Pre-Phase 8, a handoff sub-agent with `tools: ['execute_code']`
+       got `CodeExecutionToolDefinition` registered unconditionally via
+       the legacy registry path. Phase 8 replaced that with a
+       `params.codeEnvAvailable`-gated expansion inside `initializeAgent`;
+       if discovery forgets to forward the primary's capability flag,
+       handoff agents lose `bash_tool` + `read_file` even though the
+       primary had them. Pin the pass-through so regressions surface. */
+    const primaryConfig = makeConfig('A', [{ from: 'A', to: 'B', edgeType: 'handoff' }]);
+    const getAgent = jest.fn(async () => makeAgent('B', []));
+    const checkPermission = jest.fn().mockResolvedValue(true);
+
+    await discoverConnectedAgents(
+      {
+        req: makeReq(),
+        res: makeRes(),
+        primaryConfig,
+        allowedProviders: new Set(),
+        modelsConfig: { openai: ['gpt-4o'] },
+        loadTools: jest.fn(),
+        codeEnvAvailable: true,
+      },
+      {
+        getAgent,
+        checkPermission,
+        logViolation: jest.fn(),
+        db: {} as never,
+      },
+    );
+
+    expect(mockInitializeAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ codeEnvAvailable: true }),
+      expect.anything(),
+    );
+  });
+
+  it('forwards codeEnvAvailable=false verbatim so handoff agents respect disabled capability', async () => {
+    /* Symmetric to the "true" case: when the primary resolved
+       `codeEnvAvailable = false`, handoffs must NOT accidentally
+       re-enable code execution. The passthrough must preserve `false`
+       distinctly from `undefined`. */
+    const primaryConfig = makeConfig('A', [{ from: 'A', to: 'B', edgeType: 'handoff' }]);
+    const getAgent = jest.fn(async () => makeAgent('B', []));
+    const checkPermission = jest.fn().mockResolvedValue(true);
+
+    await discoverConnectedAgents(
+      {
+        req: makeReq(),
+        res: makeRes(),
+        primaryConfig,
+        allowedProviders: new Set(),
+        modelsConfig: { openai: ['gpt-4o'] },
+        loadTools: jest.fn(),
+        codeEnvAvailable: false,
+      },
+      {
+        getAgent,
+        checkPermission,
+        logViolation: jest.fn(),
+        db: {} as never,
+      },
+    );
+
+    expect(mockInitializeAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ codeEnvAvailable: false }),
+      expect.anything(),
+    );
   });
 
   it('passes the configured resourceType (e.g. REMOTE_AGENT) to checkPermission', async () => {
@@ -968,6 +1037,72 @@ describe('discoverConnectedAgents', () => {
     expect(result.skippedAgentIds.has('B')).toBe(true);
     expect(result.agentConfigs.has('B')).toBe(false);
   });
+
+  it.each([
+    ['expected MCP tools are unavailable', 'AGENT_EXPECTED_MCP_TOOLS_UNAVAILABLE', 503],
+    ['CodeAPI resource recovery is required', ErrorTypes.RESOURCE_RECOVERY_REQUIRED, 409],
+  ])('propagates a fatal handoff initialization error when %s', async (_case, code, statusCode) => {
+    const toolError = Object.assign(new Error(_case), { code, statusCode });
+    mockInitializeAgent.mockRejectedValueOnce(toolError);
+
+    const primaryConfig = makeConfig('A', [{ from: 'A', to: 'B', edgeType: 'handoff' }]);
+    const getAgent = jest.fn(async () => makeAgent('B', []));
+    const checkPermission = jest.fn().mockResolvedValue(true);
+
+    await expect(
+      discoverConnectedAgents(
+        {
+          req: makeReq(),
+          res: makeRes(),
+          primaryConfig,
+          allowedProviders: new Set(),
+          modelsConfig: { openai: ['gpt-4o'] },
+          loadTools: jest.fn(),
+        },
+        {
+          getAgent,
+          checkPermission,
+          logViolation: jest.fn(),
+          db: {} as never,
+        },
+      ),
+    ).rejects.toBe(toolError);
+  });
+
+  it.each([
+    ['expected MCP tools are unavailable', 'AGENT_EXPECTED_MCP_TOOLS_UNAVAILABLE', 503],
+    ['CodeAPI resource recovery is required', ErrorTypes.RESOURCE_RECOVERY_REQUIRED, 409],
+  ])(
+    'propagates a fatal legacy-chain initialization error when %s',
+    async (_case, code, statusCode) => {
+      const toolError = Object.assign(new Error(_case), { code, statusCode });
+      mockInitializeAgent.mockRejectedValueOnce(toolError);
+
+      const primaryConfig = makeConfig('A');
+      const getAgent = jest.fn(async () => makeAgent('B', []));
+      const checkPermission = jest.fn().mockResolvedValue(true);
+
+      await expect(
+        discoverConnectedAgents(
+          {
+            req: makeReq(),
+            res: makeRes(),
+            primaryConfig,
+            agent_ids: ['B'],
+            allowedProviders: new Set(),
+            modelsConfig: { openai: ['gpt-4o'] },
+            loadTools: jest.fn(),
+          },
+          {
+            getAgent,
+            checkPermission,
+            logViolation: jest.fn(),
+            db: {} as never,
+          },
+        ),
+      ).rejects.toBe(toolError);
+    },
+  );
 
   it('skips when request has no authenticated user', async () => {
     const primaryConfig = makeConfig('A', [{ from: 'A', to: 'B', edgeType: 'handoff' }]);

@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('../config/credentials');
 const fs = require('fs');
 const path = require('path');
 require('module-alias')({ base: path.resolve(__dirname, '..') });
@@ -10,31 +10,53 @@ const express = require('express');
 const passport = require('passport');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
-const { logger } = require('@librechat/data-schemas');
+const { logger, runAsSystem } = require('@librechat/data-schemas');
 const mongoSanitize = require('express-mongo-sanitize');
 const {
   isEnabled,
   apiNotFound,
   ErrorController,
+  QUERY_DEVTOOLS_HEADER,
   performStartupChecks,
   handleJsonParseError,
   initializeFileStorage,
+  loadToolApprovalHooks,
+  maybeInjectQueryDevtoolsBootstrap,
   preAuthTenantMiddleware,
+  requestContextMiddleware,
+  configureServerTimeouts,
+  configureMessageFilterRegexValidator,
+  configureFileConfigRegexEngine,
 } = require('@librechat/api');
 const { connectDb, indexSync } = require('~/db');
 const initializeOAuthReconnectManager = require('./services/initializeOAuthReconnectManager');
+const { capabilityContextMiddleware } = require('./middleware/roles/capabilities');
 const createValidateImageRequest = require('./middleware/validateImageRequest');
+const { startExpiredFileSweep } = require('./services/Files/process');
+const { initializeGitHubSkillSync } = require('./services/Skills/sync');
 const { jwtLogin, ldapLogin, passportLogin } = require('~/strategies');
 const { updateInterfacePermissions: updateInterfacePerms } = require('@librechat/api');
-const { getRoleByName, updateAccessPermissions, seedDatabase } = require('~/models');
+const {
+  getRoleByName,
+  updateAccessPermissions,
+  seedDatabase,
+  sweepOrphanedPreviews,
+} = require('~/models');
 const { checkMigrations } = require('./services/start/migration');
 const initializeMCPs = require('./services/initializeMCPs');
 const configureSocialLogins = require('./socialLogins');
+const createSpaFallback = require('./utils/fallback');
 const { getAppConfig } = require('./services/Config');
 const staticCache = require('./utils/staticCache');
 const optionalJwtAuth = require('./middleware/optionalJwtAuth');
 const noIndex = require('./middleware/noIndex');
 const routes = require('./routes');
+
+/** Route admin file-config MIME patterns through a linear-time engine (ReDoS-safe) on upload. */
+configureFileConfigRegexEngine();
+
+/** Reject messageFilter PII patterns the RE2 runtime engine cannot compile, at config load. */
+configureMessageFilterRegexValidator();
 
 const { PORT, HOST, ALLOW_SOCIAL_LOGIN, DISABLE_COMPRESSION, TRUST_PROXY } = process.env ?? {};
 
@@ -134,7 +156,31 @@ if (cluster.isMaster) {
   logger.info(`Spawning ${workers} workers to simulate multi-pod environment`);
 
   let activeWorkers = 0;
+  const listeningWorkers = new Set();
+  let retentionSweepWorkerId = null;
   const startTime = Date.now();
+
+  const assignRetentionSweepWorker = () => {
+    if (retentionSweepWorkerId && cluster.workers[retentionSweepWorkerId]) {
+      return;
+    }
+
+    const connectedWorkers = Object.values(cluster.workers).filter(
+      (worker) => worker && worker.isConnected(),
+    );
+    const availableWorkers = connectedWorkers.filter((worker) => listeningWorkers.has(worker.id));
+    const workerPool = availableWorkers.length > 0 ? availableWorkers : connectedWorkers;
+    const retentionSweepWorker = workerPool[workerPool.length - 1];
+    if (!retentionSweepWorker) {
+      return;
+    }
+
+    retentionSweepWorkerId = retentionSweepWorker.id;
+    logger.info(
+      wrapLogMessage(`Worker ${retentionSweepWorker.process.pid} assigned to file-retention sweep`),
+    );
+    retentionSweepWorker.send({ type: 'file-retention-sweep-worker' });
+  };
 
   /** Flush Redis cache before starting workers */
   flushRedisCache()
@@ -157,19 +203,29 @@ if (cluster.isMaster) {
       `Worker ${worker.process.pid} is online (${activeWorkers}/${workers}) after ${uptime}s`,
     );
 
-    /** Notify the last worker to perform one-time initialization tasks */
+    /** Assign one worker for process-wide background jobs */
     if (activeWorkers === workers) {
-      const allWorkers = Object.values(cluster.workers);
-      const lastWorker = allWorkers[allWorkers.length - 1];
-      if (lastWorker) {
-        logger.info(wrapLogMessage(`All ${workers} workers are online`));
-        lastWorker.send({ type: 'last-worker' });
-      }
+      logger.info(wrapLogMessage(`All ${workers} workers are online`));
+    }
+  });
+
+  cluster.on('listening', (worker) => {
+    listeningWorkers.add(worker.id);
+    if (
+      listeningWorkers.size === workers ||
+      (!retentionSweepWorkerId && activeWorkers >= workers)
+    ) {
+      assignRetentionSweepWorker();
     }
   });
 
   cluster.on('exit', (worker, code, signal) => {
     activeWorkers--;
+    listeningWorkers.delete(worker.id);
+    if (worker.id === retentionSweepWorkerId) {
+      retentionSweepWorkerId = null;
+      assignRetentionSweepWorker();
+    }
     logger.error(
       `Worker ${worker.process.pid} died (${activeWorkers}/${workers}). Code: ${code}, Signal: ${signal}`,
     );
@@ -197,6 +253,32 @@ if (cluster.isMaster) {
    * Each worker runs a full Express server instance
    */
   const app = express();
+  /**
+   * The master may assign the sweep worker before or after this worker has
+   * loaded app config. These flags join the IPC assignment with config
+   * availability and ensure the background sweep starts only once.
+   */
+  let shouldStartExpiredFileSweep = false;
+  let expiredFileSweepOptions = null;
+  let expiredFileSweepStarted = false;
+
+  const startExpiredFileSweepOnce = () => {
+    if (!shouldStartExpiredFileSweep || expiredFileSweepStarted || !expiredFileSweepOptions) {
+      return;
+    }
+
+    expiredFileSweepStarted = true;
+    startExpiredFileSweep(expiredFileSweepOptions);
+  };
+
+  /** Handle inter-process messages from master */
+  process.on('message', (msg) => {
+    if (msg.type === 'file-retention-sweep-worker') {
+      shouldStartExpiredFileSweep = true;
+      logger.info(wrapLogMessage(`Worker ${process.pid} is assigned file-retention sweep`));
+      startExpiredFileSweepOnce();
+    }
+  });
 
   const startServer = async () => {
     logger.info(`Worker ${process.pid} initializing...`);
@@ -218,13 +300,33 @@ if (cluster.isMaster) {
     app.set('trust proxy', trusted_proxy);
 
     /** Seed database (idempotent) */
-    await seedDatabase();
+    await runAsSystem(seedDatabase);
+
+    /* Mirrors `server/index.js`; `runAsSystem` for tenant-isolated File. */
+    runAsSystem(sweepOrphanedPreviews).catch((err) => {
+      logger.error('[sweepOrphanedPreviews] Background sweep failed:', err);
+    });
 
     /** Initialize app configuration */
     const appConfig = await getAppConfig();
     initializeFileStorage(appConfig);
-    await performStartupChecks(appConfig);
-    await updateInterfacePerms({ appConfig, getRoleByName, updateAccessPermissions });
+    initializeGitHubSkillSync(appConfig);
+    // Register configured tool-approval policy hooks (mirrors the standard startup path).
+    // Honors the `enabled` kill switch; hooks are base-config-only, registered process-wide.
+    // Read from the BASE config specifically — `appConfig` above (getAppConfig() with no
+    // principal) still merges DB `__base__` overrides, which must not drive which hook
+    // modules load in every worker (matches api/server/index.js's baseOnly usage).
+    const baseAppConfig = await getAppConfig({ baseOnly: true });
+    const toolApproval = baseAppConfig?.endpoints?.agents?.toolApproval;
+    await loadToolApprovalHooks(toolApproval?.enabled ? toolApproval.hooks : undefined, {
+      basePath: path.resolve(__dirname, '../..'),
+    });
+    expiredFileSweepOptions = { appConfig, loadAppConfig: getAppConfig };
+    startExpiredFileSweepOnce();
+    await runAsSystem(async () => {
+      await performStartupChecks(appConfig);
+      await updateInterfacePerms({ appConfig, getRoleByName, updateAccessPermissions });
+    });
 
     /** Load index.html for SPA serving */
     const indexPath = path.join(appConfig.paths.dist, 'index.html');
@@ -242,10 +344,28 @@ if (cluster.isMaster) {
       }
     }
 
+    const sendIndexHtml = (req, res) => {
+      res.set({
+        'Cache-Control': process.env.INDEX_CACHE_CONTROL || 'no-cache, no-store, must-revalidate',
+        Pragma: process.env.INDEX_PRAGMA || 'no-cache',
+        Expires: process.env.INDEX_EXPIRES || '0',
+      });
+      res.vary(QUERY_DEVTOOLS_HEADER);
+
+      const lang = req.cookies.lang || req.headers['accept-language']?.split(',')[0] || 'en-US';
+      const saneLang = lang.replace(/"/g, '&quot;');
+      let updatedIndexHtml = indexHTML.replace(/lang="en-US"/g, `lang="${saneLang}"`);
+      updatedIndexHtml = maybeInjectQueryDevtoolsBootstrap(updatedIndexHtml, req);
+
+      res.type('html');
+      res.send(updatedIndexHtml);
+    };
+
     /** Health check endpoint */
     app.get('/health', (_req, res) => res.status(200).send('OK'));
 
     /** Middleware */
+    app.use(requestContextMiddleware);
     app.use(noIndex);
     app.use(express.json({ limit: '3mb' }));
     app.use(express.urlencoded({ extended: true, limit: '3mb' }));
@@ -275,6 +395,7 @@ if (cluster.isMaster) {
       logger.warn('Response compression has been disabled via DISABLE_COMPRESSION.');
     }
 
+    app.get('/index.html', sendIndexHtml);
     app.use(staticCache(appConfig.paths.dist));
     app.use(staticCache(appConfig.paths.fonts));
     app.use(staticCache(appConfig.paths.assets));
@@ -297,10 +418,12 @@ if (cluster.isMaster) {
       await configureSocialLogins(app);
     }
 
+    app.use(capabilityContextMiddleware);
+
     /** Routes */
     app.use('/oauth', routes.oauth);
     app.use('/api/auth', routes.auth);
-    app.use('/api/admin', routes.adminAuth);
+    app.use('/api/admin', routes.admin);
     app.use('/api/actions', routes.actions);
     app.use('/api/keys', routes.keys);
     app.use('/api/api-keys', routes.apiKeys);
@@ -309,7 +432,9 @@ if (cluster.isMaster) {
     app.use('/api/messages', routes.messages);
     app.use('/api/convos', routes.convos);
     app.use('/api/presets', routes.presets);
+    app.use('/api/projects', routes.projects);
     app.use('/api/prompts', routes.prompts);
+    app.use('/api/skills', routes.skills);
     app.use('/api/categories', routes.categories);
     app.use('/api/endpoints', routes.endpoints);
     app.use('/api/balance', routes.balance);
@@ -331,26 +456,13 @@ if (cluster.isMaster) {
     app.use('/api', apiNotFound);
 
     /** SPA fallback - serve index.html for all unmatched routes */
-    app.use((req, res) => {
-      res.set({
-        'Cache-Control': process.env.INDEX_CACHE_CONTROL || 'no-cache, no-store, must-revalidate',
-        Pragma: process.env.INDEX_PRAGMA || 'no-cache',
-        Expires: process.env.INDEX_EXPIRES || '0',
-      });
-
-      const lang = req.cookies.lang || req.headers['accept-language']?.split(',')[0] || 'en-US';
-      const saneLang = lang.replace(/"/g, '&quot;');
-      let updatedIndexHtml = indexHTML.replace(/lang="en-US"/g, `lang="${saneLang}"`);
-
-      res.type('html');
-      res.send(updatedIndexHtml);
-    });
+    app.use(createSpaFallback(sendIndexHtml));
 
     /** Error handler (must be last - Express identifies error middleware by its 4-arg signature) */
     app.use(ErrorController);
 
     /** Start listening on shared port (cluster will distribute connections) */
-    app.listen(port, host, async (err) => {
+    const server = app.listen(port, host, async (err) => {
       if (err) {
         logger.error(`Worker ${process.pid} failed to start server:`, err);
         process.exit(1);
@@ -362,23 +474,30 @@ if (cluster.isMaster) {
         }:${port}`,
       );
 
-      /** Initialize MCP servers and OAuth reconnection for this worker */
-      await initializeMCPs();
-      await initializeOAuthReconnectManager();
-      await checkMigrations();
+      /**
+       * The listen callback is async, so any rejection from these awaits
+       * would otherwise be detached from `startServer().catch(...)`. Without
+       * explicit handling, the global `unhandledRejection` handler would
+       * swallow init failures and leave the worker listening but only
+       * partially initialized.
+       */
+      try {
+        /** Initialize MCP servers and OAuth reconnection for this worker */
+        await initializeMCPs();
+        await initializeOAuthReconnectManager();
+        await checkMigrations();
+      } catch (initErr) {
+        logger.error(`Worker ${process.pid} post-listen initialization failed:`, initErr);
+        process.exit(1);
+      }
     });
 
-    /** Handle inter-process messages from master */
-    process.on('message', async (msg) => {
-      if (msg.type === 'last-worker') {
-        logger.info(
-          wrapLogMessage(
-            `Worker ${process.pid} is the last worker and can perform special initialization tasks`,
-          ),
-        );
-        /** Add any one-time initialization tasks here */
-        /** For example: scheduled jobs, cleanup tasks, etc. */
-      }
+    configureServerTimeouts(server);
+    logger.info(`Worker ${process.pid} HTTP server timeout configuration`, {
+      keepAliveTimeout: server.keepAliveTimeout,
+      keepAliveTimeoutBuffer: server.keepAliveTimeoutBuffer,
+      headersTimeout: server.headersTimeout,
+      requestTimeout: server.requestTimeout,
     });
   };
 
@@ -440,4 +559,30 @@ process.on('uncaughtException', (err) => {
   }
 
   process.exit(1);
+});
+
+/**
+ * Unhandled promise rejection handler.
+ *
+ * Node 15+ terminates the process by default when a promise rejection is
+ * unhandled. MCP OAuth reconnect storms and streamable-HTTP transport resets
+ * can produce transient fire-and-forget rejections (ECONNRESET, token refresh
+ * races) that are recoverable — the server should log and keep serving other
+ * requests rather than silently crash under load.
+ *
+ * Non-Error reasons are forwarded as-is so structured payloads (e.g.
+ * `{ code: "ECONNRESET", errno: -104 }`) survive instead of being collapsed to
+ * "[object Object]" by `String()`.
+ */
+process.on('unhandledRejection', (reason) => {
+  if (reason instanceof Error) {
+    logger.error('Unhandled promise rejection. The app will continue running.', {
+      name: reason.name,
+      message: reason.message,
+      stack: reason.stack,
+      cause: reason.cause,
+    });
+    return;
+  }
+  logger.error('Unhandled promise rejection. The app will continue running.', { reason });
 });

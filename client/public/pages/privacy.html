@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privatlivspolitik – Torben IT ApS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f7f6f2;
+      --surface: #ffffff;
+      --ink: #1a1a1a;
+      --muted: #6b6b6b;
+      --accent: #1a3a5c;
+      --accent-light: #e8f0f8;
+      --border: #e0ddd5;
+      --warn-bg: #fff8e6;
+      --warn-border: #e6a817;
+      --warn-text: #7a4f00;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 300;
+      line-height: 1.75;
+      font-size: 16px;
+    }
+
+    .page-wrapper {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 48px 24px 96px;
+    }
+
+    /* ── Header ─────────────────────────────────── */
+    .doc-header {
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 32px;
+      margin-bottom: 48px;
+    }
+
+    .doc-label {
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    .doc-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 400;
+      color: var(--ink);
+      line-height: 1.15;
+      margin-bottom: 20px;
+    }
+
+    .doc-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 24px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .doc-meta span { display: flex; align-items: center; gap: 6px; }
+    .doc-meta span::before { content: ''; display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: var(--muted); }
+
+    /* ── Sections ────────────────────────────────── */
+    section { margin-bottom: 40px; }
+
+    h2 {
+      font-family: 'DM Serif Display', serif;
+      font-weight: 400;
+      font-size: 1.35rem;
+      color: var(--accent);
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h3 {
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--ink);
+      margin: 20px 0 8px;
+      letter-spacing: 0.02em;
+    }
+
+    p { margin-bottom: 12px; font-size: 15px; }
+
+    ul {
+      list-style: none;
+      padding: 0;
+      margin: 8px 0 16px 0;
+    }
+
+    ul li {
+      font-size: 15px;
+      padding: 5px 0 5px 20px;
+      position: relative;
+      color: var(--ink);
+    }
+
+    ul li::before {
+      content: '–';
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* ── Warning box ─────────────────────────────── */
+    .warning {
+      background: var(--warn-bg);
+      border-left: 4px solid var(--warn-border);
+      border-radius: 0 6px 6px 0;
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-size: 14px;
+      color: var(--warn-text);
+    }
+
+    .warning strong { display: block; margin-bottom: 4px; font-weight: 600; }
+
+    /* ── Provider list ───────────────────────────── */
+    .provider-list {
+      background: var(--accent-light);
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 12px 0;
+    }
+
+    .provider-list li { font-size: 14px; }
+    .provider-list a { color: var(--accent); font-weight: 500; }
+
+    /* ── Footer ──────────────────────────────────── */
+    .doc-footer {
+      margin-top: 64px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+<div class="page-wrapper">
+
+  <header class="doc-header">
+    <p class="doc-label">Torben IT ApS · CVR 39630605</p>
+    <h1 class="doc-title">Privatlivspolitik</h1>
+    <div class="doc-meta">
+      <span>Version 1.0</span>
+      <span>Gældende fra 28. marts 2026</span>
+      <span>chat.evaldogfars.online</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>1. Introduktion</h2>
+    <p>Denne privatlivspolitik beskriver, hvordan Torben IT ApS ("vi", "os" eller "virksomheden") behandler personoplysninger i forbindelse med brugen af vores interne AI-chatplatform LibreChat, tilgængelig på <a href="https://chat.evaldogfars.online/">https://chat.evaldogfars.online/</a>.</p>
+    <p>Platformen er udelukkende til intern brug for medarbejdere og autoriserede brugere tilknyttet Torben IT ApS. Behandlingen sker i overensstemmelse med GDPR (EU) 2016/679 og den danske databeskyttelseslov.</p>
+  </section>
+
+  <section>
+    <h2>2. Dataansvarlig</h2>
+    <p>Den dataansvarlige for behandling af personoplysninger på platformen er:</p>
+    <ul>
+      <li>Torben IT ApS</li>
+      <li>CVR-nummer: 39630605</li>
+      <li>Platform: <a href="https://chat.evaldogfars.online/">https://chat.evaldogfars.online/</a></li>
+      <li>[Adresse – udfyld venligst]</li>
+    </ul>
+    <p>Henvendelser om behandling af personoplysninger rettes til den dataansvarlige via de interne kontaktoplysninger.</p>
+  </section>
+
+  <section>
+    <h2>3. Hvilke oplysninger indsamler vi?</h2>
+    <h3>3.1 Brugeroplysninger</h3>
+    <ul>
+      <li>Navn og e-mailadresse (til login og adgangsstyring)</li>
+      <li>Brugerkonto og adgangskode (lagret i krypteret form)</li>
+      <li>Tidspunkt for oprettelse og seneste login</li>
+    </ul>
+    <h3>3.2 Brugsdata</h3>
+    <ul>
+      <li>Samtalehistorik (beskeder og svar via platformen)</li>
+      <li>IP-adresse og browser-/enhedsinformation</li>
+      <li>Logdata om tidspunkter og brug af platformen</li>
+      <li>Uploadede filer og vedhæftninger</li>
+    </ul>
+    <h3>3.3 Oplysninger der ikke indsamles</h3>
+    <p>Vi indsamler ikke betalingsoplysninger og sælger ikke personoplysninger til tredjepart.</p>
+  </section>
+
+  <section>
+    <h2>4. Formål og retsgrundlag</h2>
+    <ul>
+      <li>Drift og administration af platformen – legitim interesse (GDPR art. 6, stk. 1, litra f)</li>
+      <li>Adgangskontrol og sikkerhed – legitim interesse (GDPR art. 6, stk. 1, litra f)</li>
+      <li>Fejlretning og teknisk support – legitim interesse (GDPR art. 6, stk. 1, litra f)</li>
+      <li>Opfyldelse af lovkrav – retlig forpligtelse (GDPR art. 6, stk. 1, litra c)</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>5. Videregivelse til tredjepart (AI-udbydere)</h2>
+    <p>Indholdet af dine beskeder videregives til den valgte AI-udbyder for at generere svar. Følgende tjenester kan modtage dine beskeder:</p>
+
+    <ul class="provider-list">
+      <li>Anthropic (Claude) – <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener">Privatlivspolitik</a></li>
+      <li>OpenAI (GPT) – <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener">Privatlivspolitik</a></li>
+      <li>Google (Gemini) – <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Privatlivspolitik</a></li>
+      <li>Lokale modeller via Ollama – behandles udelukkende på Torben IT ApS' egne servere; ingen ekstern deling</li>
+    </ul>
+
+    <div class="warning">
+      <strong>⚠ Vigtigt</strong>
+      Send aldrig følsomme personoplysninger (CPR-numre, helbredsdata, fortrolige kundedata m.v.) via AI-tjenester, der behandles eksternt. Brug altid lokale modeller til særligt fortroligt arbejde.
+    </div>
+  </section>
+
+  <section>
+    <h2>6. Overførsel til tredjelande</h2>
+    <p>Platformen hostes på egne servere i Danmark. Samtaledata lagres lokalt. Når du bruger API-baserede modeller (Anthropic, OpenAI, Google), behandles teksten på disse udbyderes servere, typisk placeret i USA. Overførsler sker under de pågældende udbyderes DPA'er og EU's standardkontraktbestemmelser (SCCs).</p>
+  </section>
+
+  <section>
+    <h2>7. Opbevaring og sletning</h2>
+    <p>Samtalehistorik og brugerdata opbevares så længe, det er nødvendigt for driften, dog maksimalt 12 måneder efter en brugers adgang er deaktiveret, medmindre andet er påkrævet ved lov. Brugere kan anmode om sletning ved henvendelse til administrator.</p>
+  </section>
+
+  <section>
+    <h2>8. Sikkerhed</h2>
+    <ul>
+      <li>HTTPS-kryptering af al kommunikation til platformen</li>
+      <li>Adgangskontrol og passwordbeskyttelse</li>
+      <li>Platformen er alene tilgængelig for autoriserede brugere</li>
+      <li>Servere på sikret udstyr i Danmark</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>9. Dine rettigheder</h2>
+    <p>Som registreret har du følgende rettigheder i henhold til GDPR:</p>
+    <ul>
+      <li>Ret til indsigt i, hvilke oplysninger vi behandler om dig</li>
+      <li>Ret til berigtigelse af urigtige oplysninger</li>
+      <li>Ret til sletning ("retten til at blive glemt") under visse betingelser</li>
+      <li>Ret til begrænsning af behandlingen</li>
+      <li>Ret til dataportabilitet</li>
+      <li>Ret til at gøre indsigelse mod behandlingen</li>
+    </ul>
+    <p>Du har endvidere ret til at klage til <a href="https://www.datatilsynet.dk" target="_blank" rel="noopener">Datatilsynet</a>.</p>
+  </section>
+
+  <section>
+    <h2>10. Ændringer</h2>
+    <p>Vi forbeholder os retten til at opdatere denne privatlivspolitik. Ændringer træder i kraft ved offentliggørelse med ny versionsdato. Brugere orienteres om væsentlige ændringer.</p>
+  </section>
+
+  <footer class="doc-footer">
+    <span>Torben IT ApS · CVR 39630605</span>
+    <span>Sidst opdateret: 28. marts 2026</span>
+  </footer>
+
+</div>
+</body>
+</html>

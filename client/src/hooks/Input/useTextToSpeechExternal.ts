@@ -43,6 +43,14 @@ function useTextToSpeechExternal({
 
   const autoPlayAudio = (blobUrl: string) => {
     const newAudio = new Audio(blobUrl);
+    if (playbackRate != null && playbackRate !== 1 && playbackRate > 0) {
+      newAudio.playbackRate = playbackRate;
+    }
+    newAudio.play().then(() => setIsSpeaking(true)).catch(console.error);
+    newAudio.onended = () => {
+      URL.revokeObjectURL(blobUrl);
+      setIsSpeaking(false);
+    };
     audioRef.current = newAudio;
   };
 

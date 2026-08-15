@@ -1,19 +1,28 @@
+// ./api/server/services/Files/Audio/TTSService.js
 const axios = require('axios');
+const crypto = require('crypto');
+const fs = require('fs');
+const fsp = fs.promises;
+const path = require('path');
+const { Transform } = require('stream');
 const { logger } = require('@librechat/data-schemas');
-const { HttpsProxyAgent } = require('https-proxy-agent');
-const { genAzureEndpoint, logAxiosError } = require('@librechat/api');
+const {
+  genAzureEndpoint,
+  logAxiosError,
+  applyAxiosProxyConfig,
+  resolveConfigSecret,
+  applySSRFSafeAgentIfDirect,
+} = require('@librechat/api');
 const { extractEnvVariable, TTSProviders } = require('librechat-data-provider');
 const { getRandomVoiceId, createChunkProcessor, splitTextIntoChunks } = require('./streamAudio');
 const { getAppConfig } = require('~/server/services/Config');
 
-/**
- * Service class for handling Text-to-Speech (TTS) operations.
- * @class
- */
+const TTS_CACHE_DIR = path.resolve(
+  process.env.TTS_CACHE_DIR || path.join(process.cwd(), 'data', 'tts-cache'),
+);
+const TTS_CACHE_DEFAULT_DAYS = 30;
+
 class TTSService {
-  /**
-   * Creates an instance of TTSService.
-   */
   constructor() {
     this.providerStrategies = {
       [TTSProviders.OPENAI]: this.openAIProvider.bind(this),
@@ -23,23 +32,91 @@ class TTSService {
     };
   }
 
-  /**
-   * Creates a singleton instance of TTSService.
-   * @static
-   * @async
-   * @returns {Promise<TTSService>} The TTSService instance.
-   * @throws {Error} If the custom config is not found.
-   */
-  static async getInstance() {
-    return new TTSService();
+  getCacheMaxAgeMs(appConfig) {
+    const days = appConfig?.speech?.tts?.cacheMaxAgeDays;
+    return (days != null && days >= 0 ? days : TTS_CACHE_DEFAULT_DAYS) * 24 * 60 * 60 * 1000;
   }
 
-  /**
-   * Retrieves the configured TTS provider.
-   * @param {AppConfig | null | undefined} [appConfig] - The app configuration object.
-   * @returns {string} The name of the configured provider.
-   * @throws {Error} If no provider is set or multiple providers are set.
-   */
+  static async getInstance() {
+    const instance = new TTSService();
+    instance.cleanupCache().catch((err) =>
+      logger.warn(`[TTS Cache] Cleanup error: ${err.message}`),
+    );
+    return instance;
+  }
+
+  /* ====== CACHE METHODS ====== */
+
+  getCacheFilePath(input, voice) {
+    const hash = crypto
+      .createHash('sha256')
+      .update(`${voice}:${input}`)
+      .digest('hex');
+    return path.join(TTS_CACHE_DIR, `${hash}.mp3`);
+  }
+
+  async getCachedStream(input, voice, maxAgeMs) {
+    try {
+      const filePath = this.getCacheFilePath(input, voice);
+      const stats = await fsp.stat(filePath);
+      if (Date.now() - stats.mtimeMs > maxAgeMs) {
+        await fsp.unlink(filePath).catch(() => {});
+        return null;
+      }
+      logger.debug(`[TTS Cache] Hit: ${input.substring(0, 60)}`);
+      const now = new Date();
+      await fsp.utimes(filePath, now, now).catch(() => {});
+      return fs.createReadStream(filePath);
+    } catch {
+      return null;
+    }
+  }
+
+  createCachingTransform(input, voice) {
+    const filePath = this.getCacheFilePath(input, voice);
+    const chunks = [];
+    return new Transform({
+      transform(chunk, _encoding, callback) {
+        chunks.push(chunk);
+        callback(null, chunk);
+      },
+      flush(callback) {
+        const buffer = Buffer.concat(chunks);
+        fsp
+          .mkdir(TTS_CACHE_DIR, { recursive: true })
+          .then(() => fsp.writeFile(filePath, buffer))
+          .then(() => logger.debug(`[TTS Cache] Stored: ${input.substring(0, 60)}`))
+          .catch((err) => logger.error(`[TTS Cache] Write error: ${err.message}`));
+        callback();
+      },
+    });
+  }
+
+  async cleanupCache(maxAgeMs) {
+    const maxAge = maxAgeMs || TTS_CACHE_DEFAULT_DAYS * 24 * 60 * 60 * 1000;
+    try {
+      const files = await fsp.readdir(TTS_CACHE_DIR);
+      let removed = 0;
+      for (const file of files) {
+        const filePath = path.join(TTS_CACHE_DIR, file);
+        const stats = await fsp.stat(filePath);
+        if (Date.now() - stats.mtimeMs > maxAge) {
+          await fsp.unlink(filePath);
+          removed++;
+        }
+      }
+      if (removed > 0) {
+        logger.info(`[TTS Cache] Cleaned up ${removed} expired files`);
+      }
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        throw err;
+      }
+    }
+  }
+
+  /* ====== PROVIDER CONFIG (unchanged) ====== */
+
   getProvider(appConfig) {
     const ttsSchema = appConfig?.speech?.tts;
     if (!ttsSchema) {
@@ -48,7 +125,7 @@ class TTSService {
       );
     }
     const providers = Object.entries(ttsSchema).filter(
-      ([, value]) => Object.keys(value).length > 0,
+      ([key, value]) => key !== 'allowedAddresses' && Object.keys(value).length > 0,
     );
 
     if (providers.length !== 1) {
@@ -61,13 +138,6 @@ class TTSService {
     return providers[0][0];
   }
 
-  /**
-   * Selects a voice for TTS based on provider schema and request.
-   * @async
-   * @param {Object} providerSchema - The schema for the selected provider.
-   * @param {string} requestVoice - The requested voice.
-   * @returns {Promise<string>} The selected voice.
-   */
   async getVoice(providerSchema, requestVoice) {
     const voices = providerSchema.voices.filter((voice) => voice && voice.toUpperCase() !== 'ALL');
     let voice = requestVoice;
@@ -77,10 +147,6 @@ class TTSService {
     return voice;
   }
 
-  /**
-   * Recursively removes undefined properties from an object.
-   * @param {Object} obj - The object to clean.
-   */
   removeUndefined(obj) {
     Object.keys(obj).forEach((key) => {
       if (obj[key] && typeof obj[key] === 'object') {
@@ -94,14 +160,8 @@ class TTSService {
     });
   }
 
-  /**
-   * Prepares the request for OpenAI TTS provider.
-   * @param {Object} ttsSchema - The TTS schema for OpenAI.
-   * @param {string} input - The input text.
-   * @param {string} voice - The selected voice.
-   * @returns {Array} An array containing the URL, data, and headers for the request.
-   * @throws {Error} If the selected voice is not available.
-   */
+  /* ====== PROVIDER STRATEGIES (unchanged) ====== */
+
   openAIProvider(ttsSchema, input, voice) {
     const url = ttsSchema?.url || 'https://api.openai.com/v1/audio/speech';
 
@@ -121,22 +181,15 @@ class TTSService {
       backend: ttsSchema?.backend,
     };
 
+    const apiKey = resolveConfigSecret(ttsSchema?.apiKey) || '';
     const headers = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${extractEnvVariable(ttsSchema?.apiKey)}`,
+      ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
     };
 
     return [url, data, headers];
   }
 
-  /**
-   * Prepares the request for Azure OpenAI TTS provider.
-   * @param {Object} ttsSchema - The TTS schema for Azure OpenAI.
-   * @param {string} input - The input text.
-   * @param {string} voice - The selected voice.
-   * @returns {Array} An array containing the URL, data, and headers for the request.
-   * @throws {Error} If the selected voice is not available.
-   */
   azureOpenAIProvider(ttsSchema, input, voice) {
     const url = `${genAzureEndpoint({
       azureOpenAIApiInstanceName: extractEnvVariable(ttsSchema?.instanceName),
@@ -160,21 +213,12 @@ class TTSService {
 
     const headers = {
       'Content-Type': 'application/json',
-      'api-key': ttsSchema.apiKey ? extractEnvVariable(ttsSchema.apiKey) : '',
+      'api-key': ttsSchema.apiKey ? resolveConfigSecret(ttsSchema.apiKey) || '' : '',
     };
 
     return [url, data, headers];
   }
 
-  /**
-   * Prepares the request for ElevenLabs TTS provider.
-   * @param {Object} ttsSchema - The TTS schema for ElevenLabs.
-   * @param {string} input - The input text.
-   * @param {string} voice - The selected voice.
-   * @param {boolean} stream - Whether to use streaming.
-   * @returns {Array} An array containing the URL, data, and headers for the request.
-   * @throws {Error} If the selected voice is not available.
-   */
   elevenLabsProvider(ttsSchema, input, voice, stream) {
     let url =
       ttsSchema?.url ||
@@ -196,23 +240,16 @@ class TTSService {
       pronunciation_dictionary_locators: ttsSchema?.pronunciation_dictionary_locators,
     };
 
+    const apiKey = resolveConfigSecret(ttsSchema?.apiKey) || '';
     const headers = {
       'Content-Type': 'application/json',
-      'xi-api-key': extractEnvVariable(ttsSchema?.apiKey),
+      ...(apiKey && { 'xi-api-key': apiKey }),
       Accept: 'audio/mpeg',
     };
 
     return [url, data, headers];
   }
 
-  /**
-   * Prepares the request for LocalAI TTS provider.
-   * @param {Object} ttsSchema - The TTS schema for LocalAI.
-   * @param {string} input - The input text.
-   * @param {string} voice - The selected voice.
-   * @returns {Array} An array containing the URL, data, and headers for the request.
-   * @throws {Error} If the selected voice is not available.
-   */
   localAIProvider(ttsSchema, input, voice) {
     const url = ttsSchema?.url;
 
@@ -231,31 +268,30 @@ class TTSService {
       backend: ttsSchema?.backend,
     };
 
+    const apiKey = resolveConfigSecret(ttsSchema?.apiKey) || '';
     const headers = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${extractEnvVariable(ttsSchema?.apiKey)}`,
+      ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
     };
-
-    if (extractEnvVariable(ttsSchema.apiKey) === '') {
-      delete headers.Authorization;
-    }
 
     return [url, data, headers];
   }
 
-  /**
-   * Sends a TTS request to the specified provider.
-   * @async
-   * @param {string} provider - The TTS provider to use.
-   * @param {Object} ttsSchema - The TTS schema for the provider.
-   * @param {Object} options - The options for the TTS request.
-   * @param {string} options.input - The input text.
-   * @param {string} options.voice - The voice to use.
-   * @param {boolean} [options.stream=true] - Whether to use streaming.
-   * @returns {Promise<Object>} The axios response object.
-   * @throws {Error} If the provider is invalid or the request fails.
-   */
-  async ttsRequest(provider, ttsSchema, { input, voice, stream = true }) {
+  /* ====== TTS REQUEST — NOW WITH CACHING + SSRF PROTECTION ====== */
+
+  async ttsRequest(
+    provider,
+    ttsSchema,
+    { input, voice, stream = true, appConfig },
+    allowedAddresses,
+  ) {
+    const maxAgeMs = this.getCacheMaxAgeMs(appConfig);
+    const cached = await this.getCachedStream(input, voice, maxAgeMs);
+    if (cached) {
+      return { data: cached };
+    }
+
+
     const strategy = this.providerStrategies[provider];
     if (!strategy) {
       throw new Error('Invalid provider');
@@ -267,25 +303,25 @@ class TTSService {
 
     const options = { headers, responseType: stream ? 'stream' : 'arraybuffer' };
 
-    if (process.env.PROXY) {
-      options.httpsAgent = new HttpsProxyAgent(process.env.PROXY);
-    }
+    applyAxiosProxyConfig(options, url);
+    applySSRFSafeAgentIfDirect(options, url, allowedAddresses);
 
     try {
-      return await axios.post(url, data, options);
+      const response = await axios.post(url, data, options);
+
+      if (stream && response.data) {
+        response.data = response.data.pipe(this.createCachingTransform(input, voice));
+      }
+
+      return response;
     } catch (error) {
       logAxiosError({ message: `TTS request failed for provider ${provider}:`, error });
       throw error;
     }
   }
 
-  /**
-   * Processes a text-to-speech request.
-   * @async
-   * @param {ServerRequest} req - The request object.
-   * @param {ServerResponse} res - The response object.
-   * @returns {Promise<void>}
-   */
+  /* ====== HANDLERS (unchanged) ====== */
+
   async processTextToSpeech(req, res) {
     const { input, voice: requestVoice } = req.body;
 
@@ -297,16 +333,23 @@ class TTSService {
       req.config ??
       (await getAppConfig({
         role: req.user?.role,
+        userId: req.user?.id,
         tenantId: req.user?.tenantId,
       }));
     try {
       res.setHeader('Content-Type', 'audio/mpeg');
       const provider = this.getProvider(appConfig);
       const ttsSchema = appConfig?.speech?.tts?.[provider];
+      const allowedAddresses = appConfig?.speech?.tts?.allowedAddresses;
       const voice = await this.getVoice(ttsSchema, requestVoice);
 
       if (input.length < 4096) {
-        const response = await this.ttsRequest(provider, ttsSchema, { input, voice });
+        const response = await this.ttsRequest(
+          provider,
+          ttsSchema,
+          { input, voice, appConfig },
+          allowedAddresses,
+        );
         response.data.pipe(res);
         return;
       }
@@ -315,11 +358,17 @@ class TTSService {
 
       for (const chunk of textChunks) {
         try {
-          const response = await this.ttsRequest(provider, ttsSchema, {
-            voice,
-            input: chunk.text,
-            stream: true,
-          });
+          const response = await this.ttsRequest(
+            provider,
+            ttsSchema,
+            {
+              voice,
+              input: chunk.text,
+              stream: true,
+              appConfig,
+            },
+            allowedAddresses,
+          );
 
           logger.debug(`[textToSpeech] user: ${req?.user?.id} | writing audio stream`);
           await new Promise((resolve) => {
@@ -353,23 +402,18 @@ class TTSService {
     }
   }
 
-  /**
-   * Streams audio data from the TTS provider.
-   * @async
-   * @param {ServerRequest} req - The request object.
-   * @param {ServerResponse} res - The response object.
-   * @returns {Promise<void>}
-   */
   async streamAudio(req, res) {
     res.setHeader('Content-Type', 'audio/mpeg');
     const appConfig =
       req.config ??
       (await getAppConfig({
         role: req.user?.role,
+        userId: req.user?.id,
         tenantId: req.user?.tenantId,
       }));
     const provider = this.getProvider(appConfig);
     const ttsSchema = appConfig?.speech?.tts?.[provider];
+    const allowedAddresses = appConfig?.speech?.tts?.allowedAddresses;
     const voice = await this.getVoice(ttsSchema, req.body.voice);
 
     let shouldContinue = true;
@@ -396,11 +440,17 @@ class TTSService {
 
         for (const update of updates) {
           try {
-            const response = await this.ttsRequest(provider, ttsSchema, {
-              voice,
-              input: update.text,
-              stream: true,
-            });
+            const response = await this.ttsRequest(
+              provider,
+              ttsSchema,
+              {
+                voice,
+                input: update.text,
+                stream: true,
+                appConfig,
+              },
+              allowedAddresses,
+            );
 
             if (!shouldContinue) {
               break;
@@ -445,45 +495,20 @@ class TTSService {
   }
 }
 
-/**
- * Factory function to create a TTSService instance.
- * @async
- * @returns {Promise<TTSService>} A promise that resolves to a TTSService instance.
- */
 async function createTTSService() {
   return TTSService.getInstance();
 }
 
-/**
- * Wrapper function for text-to-speech processing.
- * @async
- * @param {ServerRequest} req - The request object.
- * @param {ServerResponse} res - The response object.
- * @returns {Promise<void>}
- */
 async function textToSpeech(req, res) {
   const ttsService = await createTTSService();
   await ttsService.processTextToSpeech(req, res);
 }
 
-/**
- * Wrapper function for audio streaming.
- * @async
- * @param {Object} req - The request object.
- * @param {Object} res - The response object.
- * @returns {Promise<void>}
- */
 async function streamAudio(req, res) {
   const ttsService = await createTTSService();
   await ttsService.streamAudio(req, res);
 }
 
-/**
- * Wrapper function to get the configured TTS provider.
- * @async
- * @param {AppConfig | null | undefined} appConfig - The app configuration object.
- * @returns {Promise<string>} A promise that resolves to the name of the configured provider.
- */
 async function getProvider(appConfig) {
   const ttsService = await createTTSService();
   return ttsService.getProvider(appConfig);
@@ -493,4 +518,5 @@ module.exports = {
   textToSpeech,
   streamAudio,
   getProvider,
+  TTSService,
 };

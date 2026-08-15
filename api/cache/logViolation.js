@@ -13,10 +13,7 @@ const banViolation = require('./banViolation');
  * @param {number | string} [score=1] - The severity of the violation. Defaults to 1
  */
 const logViolation = async (req, res, type, errorMessage, score = 1) => {
-  const userId = req.user?.id ?? req.user?._id;
-  if (!userId) {
-    return;
-  }
+  const userId = req.user?.id ?? req.user?._id ?? req.ip ?? 'unknown';
   const logs = getLogStores(ViolationTypes.GENERAL);
   const violationLogs = getLogStores(type);
   const key = isEnabled(process.env.USE_REDIS) ? `${type}:${userId}` : userId;

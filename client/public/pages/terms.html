@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Brugervilkår – Torben IT ApS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f7f6f2;
+      --surface: #ffffff;
+      --ink: #1a1a1a;
+      --muted: #6b6b6b;
+      --accent: #1a3a5c;
+      --accent-light: #e8f0f8;
+      --border: #e0ddd5;
+      --warn-bg: #fff8e6;
+      --warn-border: #e6a817;
+      --warn-text: #7a4f00;
+      --forbidden-bg: #fef2f2;
+      --forbidden-border: #dc2626;
+      --forbidden-text: #7f1d1d;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 300;
+      line-height: 1.75;
+      font-size: 16px;
+    }
+
+    .page-wrapper {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 48px 24px 96px;
+    }
+
+    .doc-header {
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 32px;
+      margin-bottom: 48px;
+    }
+
+    .doc-label {
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    .doc-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 400;
+      color: var(--ink);
+      line-height: 1.15;
+      margin-bottom: 20px;
+    }
+
+    .doc-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 24px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .doc-meta span { display: flex; align-items: center; gap: 6px; }
+    .doc-meta span::before { content: ''; display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: var(--muted); }
+
+    section { margin-bottom: 40px; }
+
+    h2 {
+      font-family: 'DM Serif Display', serif;
+      font-weight: 400;
+      font-size: 1.35rem;
+      color: var(--accent);
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h3 {
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--ink);
+      margin: 20px 0 8px;
+      letter-spacing: 0.02em;
+    }
+
+    p { margin-bottom: 12px; font-size: 15px; }
+
+    ul { list-style: none; padding: 0; margin: 8px 0 16px 0; }
+
+    ul li {
+      font-size: 15px;
+      padding: 5px 0 5px 20px;
+      position: relative;
+    }
+
+    ul li::before {
+      content: '–';
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    a { color: var(--accent); font-weight: 500; }
+
+    .warning {
+      background: var(--warn-bg);
+      border-left: 4px solid var(--warn-border);
+      border-radius: 0 6px 6px 0;
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-size: 14px;
+      color: var(--warn-text);
+    }
+
+    .warning strong { display: block; margin-bottom: 4px; font-weight: 600; }
+
+    .forbidden {
+      background: var(--forbidden-bg);
+      border-left: 4px solid var(--forbidden-border);
+      border-radius: 0 6px 6px 0;
+      padding: 16px 20px;
+      margin: 16px 0;
+    }
+
+    .forbidden ul li { color: var(--forbidden-text); font-size: 14px; }
+    .forbidden ul li::before { color: var(--forbidden-border); }
+
+    .provider-list {
+      background: var(--accent-light);
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 12px 0;
+    }
+
+    .provider-list li { font-size: 14px; }
+
+    .doc-footer {
+      margin-top: 64px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+<div class="page-wrapper">
+
+  <header class="doc-header">
+    <p class="doc-label">Torben IT ApS · CVR 39630605</p>
+    <h1 class="doc-title">Brugervilkår</h1>
+    <div class="doc-meta">
+      <span>Version 1.0</span>
+      <span>Gældende fra 28. marts 2026</span>
+      <span>chat.evaldogfars.online</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>1. Accept af vilkår</h2>
+    <p>Ved at logge ind på og anvende LibreChat-platformen på <a href="https://chat.evaldogfars.online/">https://chat.evaldogfars.online/</a> erklærer du dig indforstået med disse brugervilkår. Platformen må udelukkende anvendes i overensstemmelse med disse vilkår og gældende lovgivning.</p>
+  </section>
+
+  <section>
+    <h2>2. Adgang og autorisering</h2>
+    <p>Platformen er udelukkende tilgængelig for medarbejdere og autoriserede brugere i Torben IT ApS. Det er ikke tilladt at:</p>
+    <ul>
+      <li>Dele din adgangskode eller give andre adgang til din konto</li>
+      <li>Forsøge at tilgå platformen uden gældende autorisation</li>
+      <li>Omgå sikkerhedsforanstaltninger</li>
+    </ul>
+    <p>Enhver mistanke om kompromittering af din konto skal omgående meldes til administrator.</p>
+  </section>
+
+  <section>
+    <h2>3. Tilladt brug</h2>
+    <p>Platformen må kun anvendes til legitime, arbejdsrelaterede formål. Tilladt brug inkluderer:</p>
+    <ul>
+      <li>Arbejdsrelaterede spørgsmål og research</li>
+      <li>Udkast til tekster, kode og dokumenter i arbejdsmæssig sammenhæng</li>
+      <li>Analyse og behandling af ikke-fortroligt materiale</li>
+      <li>Test og eksperimentering med AI-modeller</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>4. Forbudt brug</h2>
+    <p>Følgende anvendelse er strengt forbudt:</p>
+    <div class="forbidden">
+      <ul>
+        <li>Indsendelse af følsomme personoplysninger (CPR-numre, helbredsoplysninger, kreditkortoplysninger m.v.) via eksterne AI-tjenester (Anthropic, OpenAI, Google)</li>
+        <li>Behandling af data under særlige fortrolighedsforpligtelser via eksternt hostede AI-modeller</li>
+        <li>Generering af ulovligt, skadeligt, diskriminerende eller strafbart indhold</li>
+        <li>Brug af platformen til private eller kommercielle formål uden for Torben IT ApS</li>
+        <li>Forsøg på at omgå, manipulere eller udnytte AI-modellerne i skadeligt øjemed</li>
+        <li>Krænkelse af tredjeparters intellektuelle ejendomsrettigheder</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>5. AI-udbydere og tredjepartstjenester</h2>
+    <p>Platformen integrerer med følgende eksternt hostede AI-tjenester:</p>
+    <ul class="provider-list">
+      <li>Anthropic (Claude) – <a href="https://www.anthropic.com/legal/aup" target="_blank" rel="noopener">Brugsvilkår</a></li>
+      <li>OpenAI (GPT) – <a href="https://openai.com/policies/usage-policies" target="_blank" rel="noopener">Brugsvilkår</a></li>
+      <li>Google (Gemini) – <a href="https://policies.google.com/terms" target="_blank" rel="noopener">Brugsvilkår</a></li>
+      <li>Lokale modeller via Ollama – behandles udelukkende på Torben IT ApS' egne servere</li>
+    </ul>
+    <div class="warning">
+      <strong>⚠ Bemærk</strong>
+      Du er forpligtet til at overholde de respektive udbyderes brugervilkår, når du anvender deres modeller via platformen. Torben IT ApS hæfter ikke for disse tredjepartstjenester.
+    </div>
+  </section>
+
+  <section>
+    <h2>6. Indhold og ansvar</h2>
+    <p>Du er selv ansvarlig for det indhold, du indsender. Torben IT ApS:</p>
+    <ul>
+      <li>Garanterer ikke nøjagtigheden eller egnethed af AI-genererede svar</li>
+      <li>Påtager sig ikke ansvar for beslutninger truffet på baggrund af AI-genereret indhold</li>
+      <li>Opfordrer altid til kritisk vurdering af AI-genererede output</li>
+    </ul>
+    <p>AI-svar må ikke ukritisk anvendes som erstatning for professionel rådgivning inden for jura, medicin, finans eller lignende.</p>
+  </section>
+
+  <section>
+    <h2>7. Intellektuel ejendomsret</h2>
+    <p>Platformen og dens kildekode (LibreChat, MIT-licens) tilhører de respektive rettighedshavere. Output genereret af AI-tjenesterne er underlagt de pågældende udbyderes vilkår for ejendomsret til genereret indhold.</p>
+  </section>
+
+  <section>
+    <h2>8. Tilgængelighed og driftsforstyrrelser</h2>
+    <p>Torben IT ApS bestræber sig på at holde platformen tilgængelig, men garanterer ikke 100% oppetid. Torben IT ApS hæfter ikke for tab som følge af driftsnedbrud, herunder nedbrud hos tredjepartsudbydere (Anthropic, OpenAI, Google).</p>
+  </section>
+
+  <section>
+    <h2>9. Overvågning og logning</h2>
+    <p>Torben IT ApS kan logge brugen af platformen til sikkerhedsmæssige og driftsmæssige formål i overensstemmelse med <a href="privatlivspolitik.html">privatlivspolitikken</a>.</p>
+  </section>
+
+  <section>
+    <h2>10. Suspension og lukning</h2>
+    <p>Torben IT ApS forbeholder sig retten til at suspendere eller lukke adgangen for brugere, der overtræder disse vilkår, uden forudgående varsel. Alvorlige overtrædelser kan medføre yderligere konsekvenser i henhold til ansættelsesforholdet.</p>
+  </section>
+
+  <section>
+    <h2>11. Ændringer til vilkårene</h2>
+    <p>Torben IT ApS kan til enhver tid opdatere disse brugervilkår. Opdaterede vilkår er gældende fra offentliggørelsen på platformen. Fortsat brug efter ikrafttrædelsesdatoen anses som accept af de opdaterede vilkår.</p>
+  </section>
+
+  <section>
+    <h2>12. Lovvalg og værneting</h2>
+    <p>Disse vilkår er underlagt dansk ret. Eventuelle tvister behandles ved de danske domstole med Københavns Byret som værneting i første instans, medmindre andet følger af ufravigelig lovgivning.</p>
+  </section>
+
+  <section>
+    <h2>13. Kontakt</h2>
+    <p>Spørgsmål til disse vilkår eller <a href="privatlivspolitik.html">privatlivspolitikken</a> kan rettes til Torben IT ApS, CVR 39630605.</p>
+  </section>
+
+  <footer class="doc-footer">
+    <span>Torben IT ApS · CVR 39630605</span>
+    <span>Sidst opdateret: 28. marts 2026</span>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -6,6 +6,7 @@ import { useLocalize } from '~/hooks';
 import CodeBlock from './CodeBlock';
 
 const localizedErrorPrefix = 'com_error';
+const langChainModelNotFoundUrl = /langchain\.com\/.*\/MODEL_NOT_FOUND(?:\/|\b)/i;
 
 type TConcurrent = {
   limit: number;
@@ -75,6 +76,8 @@ const errorMessages = {
     return info;
   },
   [ErrorTypes.GOOGLE_TOOL_CONFLICT]: 'com_error_google_tool_conflict',
+  [ErrorTypes.GOOGLE_VIDEO_UNPROCESSABLE]: 'com_error_google_video_unprocessable',
+  [ErrorTypes.RESOURCE_RECOVERY_REQUIRED]: 'com_error_resource_recovery_required',
   [ErrorTypes.STREAM_EXPIRED]: 'com_error_stream_expired',
   [ViolationTypes.BAN]:
     'Your account has been temporarily banned due to violations of our service.',
@@ -100,9 +103,13 @@ const errorMessages = {
       windowInMinutes > 1 ? `${windowInMinutes} minutes` : 'minute'
     }.`;
   },
-  token_balance: (json: TTokenBalance) => {
+  token_balance: (json: TTokenBalance, localize: LocalizeFunction) => {
     const { balance, tokenCost, promptTokens, generations } = json;
-    const message = `Insufficient Funds! Balance: ${balance}. Prompt tokens: ${promptTokens}. Cost: ${tokenCost}.`;
+    const message = localize('com_error_token_balance', {
+      0: balance,
+      1: promptTokens,
+      2: tokenCost,
+    });
     return (
       <>
         {message}
@@ -127,11 +134,34 @@ const errorMessages = {
 const Error = ({ text }: { text: string }) => {
   const localize = useLocalize();
   const jsonString = extractJson(text);
+  const hasJson = isJson(jsonString);
   const errorMessage = text.length > 512 && !jsonString ? text.slice(0, 512) + '...' : text;
-  const defaultResponse = `Something went wrong. Here's the specific error message we encountered: ${errorMessage}`;
 
-  if (!isJson(jsonString)) {
-    return defaultResponse;
+  const renderDefault = () => {
+    if (!hasJson) {
+      return `Something went wrong. Here's the specific error message we encountered: ${errorMessage}`;
+    }
+    const prefix = text.slice(0, text.indexOf(jsonString)).trim();
+    return (
+      <>
+        {prefix && (
+          <>
+            {prefix}
+            <br />
+            <br />
+          </>
+        )}
+        <CodeBlock lang="json" error={true} codeChildren={formatJSON(jsonString)} />
+      </>
+    );
+  };
+
+  if (langChainModelNotFoundUrl.test(text)) {
+    return localize('com_error_model_not_found');
+  }
+
+  if (!hasJson) {
+    return renderDefault();
   }
 
   const json = JSON.parse(jsonString);
@@ -145,7 +175,7 @@ const Error = ({ text }: { text: string }) => {
   } else if (keyExists) {
     return errorMessages[errorKey];
   } else {
-    return defaultResponse;
+    return renderDefault();
   }
 };
 

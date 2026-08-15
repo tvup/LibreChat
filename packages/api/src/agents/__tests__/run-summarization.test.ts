@@ -1,9 +1,16 @@
-import type { AppConfig } from '@librechat/data-schemas';
+import { encryptV3, logger } from '@librechat/data-schemas';
+import {
+  EModelEndpoint,
+  FileSources,
+  MAX_SUBAGENT_DEPTH,
+  MAX_SUBAGENT_RUN_CONFIGS,
+} from 'librechat-data-provider';
 import type { SummarizationConfig, TEndpoint } from 'librechat-data-provider';
-import { EModelEndpoint, FileSources } from 'librechat-data-provider';
+import type { AppConfig } from '@librechat/data-schemas';
 import { createRun } from '~/agents/run';
 
-// Mock winston logger
+// Mock winston logger — `format` must be callable so @librechat/data-schemas
+// dist module-load completes cleanly; see api/test/__mocks__/logger.js.
 jest.mock('winston', () => ({
   createLogger: jest.fn(() => ({
     debug: jest.fn(),
@@ -11,14 +18,50 @@ jest.mock('winston', () => ({
     error: jest.fn(),
     info: jest.fn(),
   })),
-  format: { combine: jest.fn(), colorize: jest.fn(), simple: jest.fn() },
-  transports: { Console: jest.fn() },
+  format: Object.assign(
+    jest.fn((fn) => () => ({ transform: fn })),
+    {
+      combine: jest.fn(),
+      colorize: jest.fn(),
+      simple: jest.fn(),
+      label: jest.fn(),
+      timestamp: jest.fn(),
+      printf: jest.fn(),
+      errors: jest.fn(),
+      splat: jest.fn(),
+      json: jest.fn(),
+    },
+  ),
+  addColors: jest.fn(),
+  transports: {
+    Console: jest.fn(),
+    DailyRotateFile: jest.fn(),
+    File: jest.fn(),
+  },
 }));
 
-// Mock env utilities so header resolution doesn't fail
-jest.mock('~/utils/env', () => ({
-  resolveHeaders: jest.fn((opts: { headers: unknown }) => opts?.headers ?? {}),
-  createSafeUser: jest.fn(() => ({})),
+/** Spy on the real `resolveHeaders` instead of replacing it — the templated-header
+ *  case below only proves anything if the actual substitution runs. */
+jest.mock('~/utils/env', () => {
+  const actual = jest.requireActual<typeof import('~/utils/env')>('~/utils/env');
+  return { ...actual, resolveHeaders: jest.fn(actual.resolveHeaders) };
+});
+
+jest.mock('@librechat/data-schemas', () => ({
+  ...jest.requireActual('@librechat/data-schemas'),
+  decryptV3: jest.fn((value: string) => {
+    if (value === 'v3:test:sk-tenant-1') {
+      return 'sk-tenant-1';
+    }
+    throw new Error('bad decrypt');
+  }),
+  encryptV3: jest.fn((value: string) => `v3:test:${value}`),
+  logger: {
+    debug: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+  },
 }));
 
 // Mock Run.create to capture the graphConfig it receives
@@ -34,7 +77,12 @@ jest.mock('@librechat/agents', () => {
   };
 });
 
-import { Run } from '@librechat/agents';
+// Stub the durable checkpointer so the HITL-enabled path doesn't need a live Mongo.
+jest.mock('~/agents/checkpointer', () => ({
+  getAgentCheckpointer: jest.fn().mockResolvedValue({}),
+}));
+
+import { Run, buildChildInputs } from '@librechat/agents';
 
 /** Minimal RunAgent factory */
 function makeAgent(
@@ -51,6 +99,57 @@ function makeAgent(
     toolContextMap: {},
     ...overrides,
   };
+}
+
+type TestRunAgent = ReturnType<typeof makeAgent> & {
+  subagentAgentConfigs?: TestRunAgent[];
+};
+
+function makeSubagentChain(hops: number): TestRunAgent {
+  const agents = Array.from({ length: hops + 1 }, (_, index) =>
+    makeAgent({
+      id: `agent_chain_${index}`,
+      name: `Chain ${index}`,
+    }),
+  ) as TestRunAgent[];
+
+  for (let index = 0; index < hops; index++) {
+    const child = agents[index + 1];
+    agents[index].subagents = { enabled: true, allowSelf: false, agent_ids: [child.id] };
+    agents[index].subagentAgentConfigs = [child];
+  }
+
+  return agents[0];
+}
+
+function makeLayeredSubagentDag(width: number, depth: number): TestRunAgent {
+  const root = makeAgent({ id: 'agent_dag_root', name: 'DAG Root' }) as TestRunAgent;
+  const layers: TestRunAgent[][] = [[root]];
+
+  for (let level = 1; level <= depth; level++) {
+    layers.push(
+      Array.from({ length: width }, (_, index) =>
+        makeAgent({
+          id: `agent_dag_${level}_${index}`,
+          name: `DAG ${level}.${index}`,
+        }),
+      ) as TestRunAgent[],
+    );
+  }
+
+  for (let level = 0; level < depth; level++) {
+    const children = layers[level + 1];
+    for (const agent of layers[level]) {
+      agent.subagents = {
+        enabled: true,
+        allowSelf: false,
+        agent_ids: children.map((child) => child.id),
+      };
+      agent.subagentAgentConfigs = children;
+    }
+  }
+
+  return root;
 }
 
 /** Helper: call createRun and return the captured agentInputs array */
@@ -117,6 +216,56 @@ function makeAppConfig(customEndpoints: TestCustomEndpoint[]): AppConfig {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  delete process.env.LANGFUSE_PUBLIC_KEY;
+  delete process.env.LANGFUSE_SECRET_KEY;
+  delete process.env.LANGFUSE_BASE_URL;
+  delete process.env.LANGFUSE_BASEURL;
+  delete process.env.LANGFUSE_HOST;
+  delete process.env.LANGFUSE_FANOUT_ENABLED;
+  delete process.env.LANGFUSE_FANOUT_COLLECTOR_URL;
+  delete process.env.LANGFUSE_FANOUT_CENTRAL_MEDIA_UPLOAD_DISABLED;
+  delete process.env.LANGFUSE_FANOUT_TENANT_DESTINATIONS;
+  delete process.env.LANGFUSE_FANOUT_TENANT_EXPORT_DISABLED;
+  delete process.env.LANGFUSE_TRACING_ENABLED;
+  delete process.env.LANGFUSE_SAMPLE_RATE;
+  process.env.TENANT_ISOLATION_STRICT = 'true';
+});
+
+afterAll(() => {
+  delete process.env.TENANT_ISOLATION_STRICT;
+});
+
+// ---------------------------------------------------------------------------
+// Suite: custom endpoint stream usage defaults
+// ---------------------------------------------------------------------------
+describe('custom endpoint stream usage defaults', () => {
+  it('disables streamUsage by default for OpenAI-compatible custom endpoints', async () => {
+    const agents = await callAndCapture({
+      agents: [makeAgent({ endpoint: 'LiteLLM' })],
+    });
+    const clientOptions = agents[0].clientOptions as Record<string, unknown>;
+
+    expect(clientOptions.streamUsage).toBe(false);
+    expect(clientOptions.usage).toBe(true);
+  });
+
+  it('respects explicit streamUsage from endpoint-resolved model parameters', async () => {
+    const agents = await callAndCapture({
+      agents: [
+        makeAgent({
+          endpoint: 'LiteLLM',
+          model_parameters: {
+            model: 'gpt-4o',
+            streamUsage: true,
+          },
+        }),
+      ],
+    });
+    const clientOptions = agents[0].clientOptions as Record<string, unknown>;
+
+    expect(clientOptions.streamUsage).toBe(true);
+    expect(clientOptions.usage).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -264,6 +413,7 @@ describe('summarizationConfig field passthrough', () => {
         updatePrompt: 'Update the existing summary with new messages',
         reserveRatio: 0.1,
         maxSummaryTokens: 4096,
+        retainRecent: { turns: 5, tokens: 40000 },
       },
     });
     const config = agents[0].summarizationConfig as Record<string, unknown>;
@@ -279,6 +429,7 @@ describe('summarizationConfig field passthrough', () => {
     expect(config.updatePrompt).toBe('Update the existing summary with new messages');
     expect(config.reserveRatio).toBe(0.1);
     expect(config.maxSummaryTokens).toBe(4096);
+    expect(config.retainRecent).toEqual({ turns: 5, tokens: 40000 });
   });
 
   it('uses self-summarize default when no config provided', async () => {
@@ -323,6 +474,24 @@ describe('summarizationConfig field passthrough', () => {
 // Suite 5: Multi-agent + per-agent overrides
 // ---------------------------------------------------------------------------
 describe('multi-agent + per-agent overrides', () => {
+  it('normalizes missing persisted edges before creating the SDK graph', async () => {
+    await createRun({
+      agents: [makeAgent({ id: 'agent_1' }), makeAgent({ id: 'agent_2' })] as never,
+      signal: new AbortController().signal,
+      streaming: true,
+      streamUsage: true,
+    });
+
+    const createMock = Run.create as jest.Mock;
+    const runConfig = createMock.mock.calls[0][0] as {
+      graphConfig: { type: string; edges: unknown[] };
+    };
+    expect(runConfig.graphConfig).toMatchObject({
+      type: 'multi-agent',
+      edges: [],
+    });
+  });
+
   it('different agents get different effectiveMaxContextTokens', async () => {
     const agents = await callAndCapture({
       agents: [
@@ -362,7 +531,28 @@ describe('initialSummary passthrough', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Suite 7: custom-endpoint provider resolution
+// Suite 7: stable/dynamic system instructions
+// ---------------------------------------------------------------------------
+describe('stable/dynamic system instructions', () => {
+  it('keeps static tool and agent instructions separate from dynamic runtime tail', async () => {
+    const agents = await callAndCapture({
+      agents: [
+        makeAgent({
+          instructions: 'Base instructions',
+          additional_instructions: 'Memory tail',
+          toolContextMap: { web_search: 'Static tool instructions' },
+          dynamicToolContextMap: { web_search: 'Conversation Date & Time: anchor' },
+        }),
+      ],
+    });
+
+    expect(agents[0].instructions).toBe('Static tool instructions\nBase instructions');
+    expect(agents[0].additional_instructions).toBe('Conversation Date & Time: anchor\nMemory tail');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 8: custom-endpoint provider resolution
 // ---------------------------------------------------------------------------
 describe('custom-endpoint provider resolution', () => {
   it('remaps a custom endpoint name to openAI and injects baseURL/apiKey', async () => {
@@ -803,5 +993,1347 @@ describe('custom-endpoint provider resolution', () => {
     /** Summarization.model must win — parameters must not carry a stale model/modelName. */
     expect(parameters.model).toBeUndefined();
     expect(parameters.modelName).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 8: subagentConfigs
+// ---------------------------------------------------------------------------
+describe('subagentConfigs', () => {
+  it('is undefined when subagents are not enabled', async () => {
+    const agents = await callAndCapture({});
+    expect(agents[0].subagentConfigs).toBeUndefined();
+  });
+
+  it('adds self-spawn when enabled and allowSelf defaults to true', async () => {
+    const agents = await callAndCapture({
+      agents: [makeAgent({ subagents: { enabled: true } })],
+    });
+    const configs = agents[0].subagentConfigs as Array<Record<string, unknown>>;
+    expect(Array.isArray(configs)).toBe(true);
+    expect(configs).toHaveLength(1);
+    expect(configs[0]).toMatchObject({ self: true, type: 'self' });
+  });
+
+  it('omits self-spawn when allowSelf is false', async () => {
+    const agents = await callAndCapture({
+      agents: [makeAgent({ subagents: { enabled: true, allowSelf: false } })],
+    });
+    expect(agents[0].subagentConfigs).toBeUndefined();
+  });
+
+  it('adds explicit subagent configs with agentInputs', async () => {
+    const child = makeAgent({
+      id: 'agent_child',
+      name: 'Researcher',
+      description: 'Deep web research',
+    });
+    const agents = await callAndCapture({
+      agents: [
+        makeAgent({
+          subagents: { enabled: true, allowSelf: false, agent_ids: ['agent_child'] },
+          subagentAgentConfigs: [child],
+        }),
+      ],
+    });
+    const configs = agents[0].subagentConfigs as Array<Record<string, unknown>>;
+    expect(configs).toHaveLength(1);
+    expect(configs[0]).toMatchObject({
+      type: 'agent_child',
+      name: 'Researcher',
+      description: 'Deep web research',
+    });
+    expect(configs[0].agentInputs).toBeDefined();
+    expect(configs[0].self).toBeUndefined();
+  });
+
+  it('adds explicit lazy subagent descriptors without eager agent inputs', async () => {
+    const resolve = jest
+      .fn()
+      .mockResolvedValue(
+        makeAgent({ id: 'agent_child', name: 'Researcher', description: 'Deep web research' }),
+      );
+    const agents = await callAndCapture({
+      agents: [
+        makeAgent({
+          subagents: { enabled: true, allowSelf: false, agent_ids: ['agent_child'] },
+          lazySubagentConfigs: [
+            {
+              id: 'agent_child',
+              name: 'Researcher',
+              description: 'Deep web research',
+              configId: 'agent_child:3:fingerprint',
+              resolve,
+            },
+          ],
+        }),
+      ],
+    });
+    const configs = agents[0].subagentConfigs as Array<Record<string, unknown>>;
+    expect(configs).toHaveLength(1);
+    expect(configs[0]).toMatchObject({
+      type: 'agent_child',
+      configId: 'agent_child:3:fingerprint',
+      allowNested: true,
+    });
+    expect(configs[0].agentInputs).toBeUndefined();
+    expect(configs[0].resolveAgentInputs).toBeInstanceOf(Function);
+    expect(resolve).not.toHaveBeenCalled();
+
+    const childInputs = await (
+      configs[0].resolveAgentInputs as (context: never) => Promise<{
+        name?: string;
+      }>
+    )({ signal: new AbortController().signal } as never);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(childInputs.name).toBe('Researcher');
+  });
+
+  it('uses a fresh expansion budget for each lazy descriptor resolution', async () => {
+    const nestedDescriptors = Array.from({ length: 99 }, (_, index) => ({
+      id: `agent_nested_${index}`,
+      name: `Nested ${index}`,
+      description: 'Nested lazy child',
+      configId: `agent_nested_${index}:1:fingerprint`,
+      resolve: jest.fn(),
+    }));
+    const resolve = jest.fn().mockResolvedValue(
+      makeAgent({
+        id: 'agent_child',
+        subagents: { enabled: true, allowSelf: false },
+        lazySubagentConfigs: nestedDescriptors,
+      }),
+    );
+    const agents = await callAndCapture({
+      agents: [
+        makeAgent({
+          subagents: { enabled: true, allowSelf: false, agent_ids: ['agent_child'] },
+          lazySubagentConfigs: [
+            {
+              id: 'agent_child',
+              name: 'Child',
+              description: 'Lazy child',
+              configId: 'agent_child:1:fingerprint',
+              resolve,
+            },
+          ],
+        }),
+      ],
+    });
+    const resolveAgentInputs = (agents[0].subagentConfigs as Array<Record<string, unknown>>)[0]
+      .resolveAgentInputs as (context: never) => Promise<unknown>;
+    const context = { signal: new AbortController().signal } as never;
+
+    await expect(resolveAgentInputs(context)).resolves.toBeDefined();
+    await expect(resolveAgentInputs(context)).resolves.toBeDefined();
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves explicit nested subagents across the SDK child graph boundary', async () => {
+    const grandchild = makeAgent({ id: 'agent_grandchild', name: 'Grandchild' });
+    const child = makeAgent({
+      id: 'agent_child',
+      name: 'Child',
+      subagents: { enabled: true, allowSelf: false, agent_ids: ['agent_grandchild'] },
+      subagentAgentConfigs: [grandchild],
+    });
+    const agents = await callAndCapture({
+      agents: [
+        makeAgent({
+          subagents: { enabled: true, allowSelf: false, agent_ids: ['agent_child'] },
+          subagentAgentConfigs: [child],
+        }),
+      ],
+    });
+
+    expect(agents[0].maxSubagentDepth).toBe(MAX_SUBAGENT_DEPTH);
+    const childConfig = (agents[0].subagentConfigs as Parameters<typeof buildChildInputs>[0][])[0];
+    expect(childConfig.allowNested).toBe(true);
+
+    const childInputs = buildChildInputs(childConfig, 'agent_child', MAX_SUBAGENT_DEPTH);
+    expect(childInputs.maxSubagentDepth).toBe(MAX_SUBAGENT_DEPTH - 1);
+    expect(childInputs.subagentConfigs).toHaveLength(1);
+    expect(childInputs.subagentConfigs?.[0]).toMatchObject({
+      type: 'agent_grandchild',
+      allowNested: true,
+    });
+  });
+
+  it('combines self-spawn and explicit subagents when both enabled', async () => {
+    const child = makeAgent({ id: 'agent_child', name: 'Helper' });
+    const agents = await callAndCapture({
+      agents: [
+        makeAgent({
+          subagents: { enabled: true, agent_ids: ['agent_child'] },
+          subagentAgentConfigs: [child],
+        }),
+      ],
+    });
+    const configs = agents[0].subagentConfigs as Array<Record<string, unknown>>;
+    expect(configs).toHaveLength(2);
+    expect(configs[0].self).toBe(true);
+    expect(configs[1].type).toBe('agent_child');
+  });
+
+  it('skips a child that points at the parent itself', async () => {
+    const self = makeAgent({ id: 'agent_1' });
+    const agents = await callAndCapture({
+      agents: [
+        makeAgent({
+          subagents: { enabled: true, allowSelf: false, agent_ids: ['agent_1'] },
+          subagentAgentConfigs: [self],
+        }),
+      ],
+    });
+    expect(agents[0].subagentConfigs).toBeUndefined();
+  });
+
+  it('does NOT leak the parent run `initialSummary` into an explicit child (Codex P1 regression)', async () => {
+    /**
+     * `buildAgentInput` is a shared factory that always stamps the parent
+     * run's `initialSummary` on the returned AgentInputs. When it's reused
+     * to build a subagent child's inputs, `buildSubagentConfigs` must clear
+     * that field — otherwise the child inherits unrelated conversation
+     * context, defeating the isolation contract (and burning extra tokens).
+     */
+    const summary = { text: 'parent conversation summary', tokenCount: 99 };
+    const child = makeAgent({ id: 'agent_child', name: 'Child' });
+    const agents = await callAndCapture({
+      initialSummary: summary,
+      agents: [
+        makeAgent({
+          subagents: { enabled: true, allowSelf: false, agent_ids: ['agent_child'] },
+          subagentAgentConfigs: [child],
+        }),
+      ],
+    });
+
+    const parent = agents[0];
+    /** The parent itself keeps the summary — that's how it receives
+     *  cross-turn context. */
+    expect(parent.initialSummary).toEqual(summary);
+
+    const childConfig = (parent.subagentConfigs as Array<Record<string, unknown>>)[0];
+    const childInputs = childConfig.agentInputs as {
+      initialSummary?: unknown;
+      discoveredTools?: unknown;
+    };
+    expect(childInputs.initialSummary).toBeUndefined();
+    expect(childInputs.discoveredTools).toBeUndefined();
+  });
+
+  it('rejects subagent graphs deeper than MAX_SUBAGENT_DEPTH before Run.create', async () => {
+    await expect(
+      createRun({
+        agents: [makeSubagentChain(MAX_SUBAGENT_DEPTH + 1)] as never,
+        signal: new AbortController().signal,
+        streaming: true,
+        streamUsage: true,
+      }),
+    ).rejects.toThrow(`maximum depth of ${MAX_SUBAGENT_DEPTH}`);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[createRun] Subagent graph depth limit exceeded',
+      expect.objectContaining({
+        agentId: `agent_chain_${MAX_SUBAGENT_DEPTH + 1}`,
+        depth: MAX_SUBAGENT_DEPTH + 1,
+        maxSubagentDepth: MAX_SUBAGENT_DEPTH,
+      }),
+    );
+    expect(Run.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects layered DAGs that exceed MAX_SUBAGENT_RUN_CONFIGS expanded entries', async () => {
+    await expect(
+      createRun({
+        agents: [makeLayeredSubagentDag(3, MAX_SUBAGENT_DEPTH)] as never,
+        signal: new AbortController().signal,
+        streaming: true,
+        streamUsage: true,
+      }),
+    ).rejects.toThrow(`maximum of ${MAX_SUBAGENT_RUN_CONFIGS} expanded entries`);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[createRun] Subagent run configuration limit exceeded',
+      expect.objectContaining({
+        expandedConfigCount: MAX_SUBAGENT_RUN_CONFIGS + 1,
+        maxSubagentRunConfigs: MAX_SUBAGENT_RUN_CONFIGS,
+        rootAgentIds: ['agent_dag_root'],
+      }),
+    );
+    expect(Run.create).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Captures the top-level `Run.create` config (not just agentInputs) so tests
+ * can assert presence/absence of run-level options.
+ */
+async function callAndCaptureRunConfig({
+  overrides,
+  user,
+  tenantId,
+  appConfig,
+}: {
+  overrides?: Record<string, unknown>;
+  user?: Record<string, unknown>;
+  tenantId?: string;
+  appConfig?: AppConfig;
+} = {}): Promise<Record<string, unknown>> {
+  const agents = [makeAgent(overrides)];
+  const signal = new AbortController().signal;
+
+  await createRun({
+    agents: agents as never,
+    signal,
+    streaming: true,
+    streamUsage: true,
+    user: user as never,
+    tenantId,
+    appConfig,
+  });
+
+  const createMock = Run.create as jest.Mock;
+  expect(createMock).toHaveBeenCalledTimes(1);
+  return createMock.mock.calls[0][0] as Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Suite: Langfuse run config
+// ---------------------------------------------------------------------------
+describe('Langfuse run config', () => {
+  it('passes deterministic Langfuse trace config without tenant metadata by default', async () => {
+    const callArgs = await callAndCaptureRunConfig();
+    expect(callArgs.langfuse).toEqual({ deterministicTraceId: true });
+  });
+
+  it('adds the explicit request tenant id to Langfuse trace metadata and tags', async () => {
+    const callArgs = await callAndCaptureRunConfig({
+      user: {
+        id: 'user-1',
+      },
+      tenantId: 'tenant-1',
+    });
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      tags: ['tenant:tenant-1'],
+    });
+  });
+
+  it('falls back to a full user tenant id for direct createRun callers', async () => {
+    const callArgs = await callAndCaptureRunConfig({
+      user: {
+        tenantId: 'tenant-2',
+      },
+    });
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      metadata: { 'librechat.tenant.id': 'tenant-2' },
+      tags: ['tenant:tenant-2'],
+    });
+  });
+
+  it('adds tenant Langfuse credentials from tenant-scoped app config', async () => {
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://langfuse-fanout-collector:4318';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: true,
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+          destination: 'eu',
+        },
+      } as unknown as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      publicKey: 'pk-tenant-1',
+      secretKey: 'sk-tenant-1',
+      baseUrl: 'http://langfuse-fanout-collector:4318/tenant/eu',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      librechatTraceAttributes: {
+        'librechat.langfuse.tenant_export.enabled': 'true',
+        'librechat.langfuse.destination': 'eu',
+      },
+      tags: ['tenant:tenant-1'],
+    });
+  });
+
+  it('uses central env Langfuse config when deployment fanout is not enabled', async () => {
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+    process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+    process.env.LANGFUSE_BASE_URL = 'https://central.langfuse.example';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: true,
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+          destination: 'eu',
+        },
+      } as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      publicKey: 'pk-central',
+      secretKey: 'sk-central',
+      baseUrl: 'https://central.langfuse.example',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      tags: ['tenant:tenant-1'],
+    });
+  });
+
+  it('uses deployment fanout collector URL without auth when only tenant keys are configured', async () => {
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+    process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+    process.env.LANGFUSE_BASE_URL = 'https://central.langfuse.example';
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: true,
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+        },
+      } as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      baseUrl: 'http://collector-from-env:4318',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      tags: ['tenant:tenant-1'],
+    });
+  });
+
+  it('routes tenant fanout traces to the configured tenant destination', async () => {
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: true,
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+          destination: 'us',
+        },
+      } as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toMatchObject({
+      publicKey: 'pk-tenant-1',
+      secretKey: 'sk-tenant-1',
+      baseUrl: 'http://collector-from-env:4318/tenant/us',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      librechatTraceAttributes: {
+        'librechat.langfuse.tenant_export.enabled': 'true',
+        'librechat.langfuse.destination': 'us',
+      },
+    });
+  });
+
+  it('normalizes trailing slashes when building the tenant-scoped fanout URL', async () => {
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318/';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: true,
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+          destination: 'eu',
+        },
+      } as AppConfig,
+    });
+
+    expect((callArgs.langfuse as { baseUrl?: string } | undefined)?.baseUrl).toBe(
+      'http://collector-from-env:4318/tenant/eu',
+    );
+  });
+
+  it.each(['1', 'yes', 'on'])(
+    'routes tenant fanout traces when global fanout is %s',
+    async (value) => {
+      process.env.LANGFUSE_FANOUT_ENABLED = value;
+      process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+
+      const callArgs = await callAndCaptureRunConfig({
+        tenantId: 'tenant-1',
+        appConfig: {
+          langfuse: {
+            enabled: true,
+            publicKey: 'pk-tenant-1',
+            secretKey: encryptV3('sk-tenant-1'),
+            destination: 'us',
+          },
+        } as AppConfig,
+      });
+
+      expect(callArgs.langfuse).toMatchObject({
+        publicKey: 'pk-tenant-1',
+        secretKey: 'sk-tenant-1',
+        baseUrl: 'http://collector-from-env:4318/tenant/us',
+        librechatTraceAttributes: {
+          'librechat.langfuse.tenant_export.enabled': 'true',
+          'librechat.langfuse.destination': 'us',
+        },
+      });
+    },
+  );
+
+  it.each(['false', '0', 'no', 'off'])(
+    'uses central env Langfuse config when global fanout is %s',
+    async (value) => {
+      process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+      process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+      process.env.LANGFUSE_BASE_URL = 'https://central.langfuse.example';
+      process.env.LANGFUSE_FANOUT_ENABLED = value;
+      process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+
+      const callArgs = await callAndCaptureRunConfig({
+        tenantId: 'tenant-1',
+        appConfig: {
+          langfuse: {
+            enabled: true,
+            publicKey: 'pk-tenant-1',
+            secretKey: encryptV3('sk-tenant-1'),
+            destination: 'eu',
+          },
+        } as AppConfig,
+      });
+
+      expect(callArgs.langfuse).toEqual({
+        deterministicTraceId: true,
+        publicKey: 'pk-central',
+        secretKey: 'sk-central',
+        baseUrl: 'https://central.langfuse.example',
+        metadata: { 'librechat.tenant.id': 'tenant-1' },
+        tags: ['tenant:tenant-1'],
+      });
+    },
+  );
+
+  it('does not append a tenant route to baseUrl when fanout is disabled', async () => {
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+    process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+    process.env.LANGFUSE_BASE_URL = 'https://central.langfuse.example';
+    process.env.LANGFUSE_FANOUT_ENABLED = 'false';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: true,
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+          destination: 'eu',
+        },
+      } as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toMatchObject({
+      publicKey: 'pk-central',
+      secretKey: 'sk-central',
+      baseUrl: 'https://central.langfuse.example',
+    });
+    expect(callArgs.langfuse).not.toMatchObject({
+      baseUrl: 'http://collector-from-env:4318/tenant/eu',
+      librechatTraceAttributes: expect.any(Object),
+    });
+  });
+
+  it('uses central env Langfuse config when fanout has no collector URL', async () => {
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+    process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+    process.env.LANGFUSE_BASE_URL = 'https://central.langfuse.example';
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: true,
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+          destination: 'eu',
+        },
+      } as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      publicKey: 'pk-central',
+      secretKey: 'sk-central',
+      baseUrl: 'https://central.langfuse.example',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      tags: ['tenant:tenant-1'],
+    });
+  });
+
+  it('uses deployment fanout collector URL without auth when the tenant destination is not configured', async () => {
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+    process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+    process.env.LANGFUSE_BASE_URL = 'https://central.langfuse.example';
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+    process.env.LANGFUSE_FANOUT_TENANT_DESTINATIONS = 'eu=https://cloud.langfuse.com';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: true,
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+          destination: 'unconfigured',
+        },
+      } as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      baseUrl: 'http://collector-from-env:4318',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      tags: ['tenant:tenant-1'],
+    });
+  });
+
+  it('uses deployment fanout collector URL without auth when tenant Langfuse config has no keys', async () => {
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+    process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+    process.env.LANGFUSE_BASE_URL = 'https://central.langfuse.example';
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: { enabled: true },
+      } as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      baseUrl: 'http://collector-from-env:4318',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      tags: ['tenant:tenant-1'],
+    });
+  });
+
+  it('uses deployment fanout collector URL without auth when app config is missing under fanout env', async () => {
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+    process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+    process.env.LANGFUSE_BASE_URL = 'https://central.langfuse.example';
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+    });
+
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      baseUrl: 'http://collector-from-env:4318',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      tags: ['tenant:tenant-1'],
+    });
+  });
+
+  it('uses deployment fanout collector URL without auth when tenant fanout export is disabled', async () => {
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+    process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+    process.env.LANGFUSE_BASE_URL = 'https://central.langfuse.example';
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+    process.env.LANGFUSE_FANOUT_TENANT_EXPORT_DISABLED = 'true';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: true,
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+        },
+      } as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      baseUrl: 'http://collector-from-env:4318',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      tags: ['tenant:tenant-1'],
+    });
+  });
+
+  it('does not disable tenant fanout export for a blank emergency toggle', async () => {
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+    process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+    process.env.LANGFUSE_FANOUT_TENANT_EXPORT_DISABLED = '  ';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: true,
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+          destination: 'eu',
+        },
+      } as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      baseUrl: 'http://collector-from-env:4318/tenant/eu',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      publicKey: 'pk-tenant-1',
+      secretKey: 'sk-tenant-1',
+      tags: ['tenant:tenant-1'],
+      librechatTraceAttributes: {
+        'librechat.langfuse.tenant_export.enabled': 'true',
+        'librechat.langfuse.destination': 'eu',
+      },
+    });
+  });
+
+  it.each(['true', '1', 'yes', 'on'])(
+    'uses deployment fanout collector URL without auth when the emergency toggle is %s',
+    async (value) => {
+      process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+      process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+      process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+      process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+      process.env.LANGFUSE_FANOUT_TENANT_EXPORT_DISABLED = value;
+
+      const callArgs = await callAndCaptureRunConfig({
+        tenantId: 'tenant-1',
+        appConfig: {
+          langfuse: {
+            enabled: true,
+            publicKey: 'pk-tenant-1',
+            secretKey: encryptV3('sk-tenant-1'),
+            destination: 'eu',
+          },
+        } as AppConfig,
+      });
+
+      expect(callArgs.langfuse).toEqual({
+        deterministicTraceId: true,
+        baseUrl: 'http://collector-from-env:4318',
+        metadata: { 'librechat.tenant.id': 'tenant-1' },
+        tags: ['tenant:tenant-1'],
+      });
+    },
+  );
+
+  it.each(['false', '0', 'no', 'off'])(
+    'routes tenant fanout traces when the emergency toggle is %s',
+    async (value) => {
+      process.env.LANGFUSE_PUBLIC_KEY = 'pk-central';
+      process.env.LANGFUSE_SECRET_KEY = 'sk-central';
+      process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+      process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+      process.env.LANGFUSE_FANOUT_TENANT_EXPORT_DISABLED = value;
+
+      const callArgs = await callAndCaptureRunConfig({
+        tenantId: 'tenant-1',
+        appConfig: {
+          langfuse: {
+            enabled: true,
+            publicKey: 'pk-tenant-1',
+            secretKey: encryptV3('sk-tenant-1'),
+            destination: 'eu',
+          },
+        } as AppConfig,
+      });
+
+      expect(callArgs.langfuse).toEqual({
+        deterministicTraceId: true,
+        baseUrl: 'http://collector-from-env:4318/tenant/eu',
+        metadata: { 'librechat.tenant.id': 'tenant-1' },
+        publicKey: 'pk-tenant-1',
+        secretKey: 'sk-tenant-1',
+        tags: ['tenant:tenant-1'],
+        librechatTraceAttributes: {
+          'librechat.langfuse.tenant_export.enabled': 'true',
+          'librechat.langfuse.destination': 'eu',
+        },
+      });
+    },
+  );
+
+  it('keeps central collector tracing when tenant Langfuse export is disabled', async () => {
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: false,
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+        },
+      } as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      baseUrl: 'http://collector-from-env:4318',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      tags: ['tenant:tenant-1'],
+    });
+  });
+
+  it('keeps central collector tracing when tenant Langfuse enabled is the string false', async () => {
+    process.env.LANGFUSE_FANOUT_ENABLED = 'true';
+    process.env.LANGFUSE_FANOUT_COLLECTOR_URL = 'http://collector-from-env:4318';
+
+    const callArgs = await callAndCaptureRunConfig({
+      tenantId: 'tenant-1',
+      appConfig: {
+        langfuse: {
+          enabled: 'false',
+          publicKey: 'pk-tenant-1',
+          secretKey: encryptV3('sk-tenant-1'),
+        },
+      } as unknown as AppConfig,
+    });
+
+    expect(callArgs.langfuse).toEqual({
+      deterministicTraceId: true,
+      baseUrl: 'http://collector-from-env:4318',
+      metadata: { 'librechat.tenant.id': 'tenant-1' },
+      tags: ['tenant:tenant-1'],
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: toolOutputReferences gating
+// ---------------------------------------------------------------------------
+describe('toolOutputReferences gating', () => {
+  it('passes toolOutputReferences when agent has codeEnvAvailable=true', async () => {
+    const callArgs = await callAndCaptureRunConfig({
+      overrides: { codeEnvAvailable: true },
+    });
+    expect(callArgs.toolOutputReferences).toEqual({ enabled: true });
+  });
+
+  it('omits toolOutputReferences when codeEnvAvailable is false', async () => {
+    const callArgs = await callAndCaptureRunConfig({
+      overrides: { codeEnvAvailable: false },
+    });
+    expect(callArgs).not.toHaveProperty('toolOutputReferences');
+  });
+
+  it('omits toolOutputReferences when codeEnvAvailable is unset', async () => {
+    const callArgs = await callAndCaptureRunConfig();
+    expect(callArgs).not.toHaveProperty('toolOutputReferences');
+  });
+
+  it('enables toolOutputReferences if any agent in a multi-agent run has codeEnvAvailable=true', async () => {
+    const signal = new AbortController().signal;
+    await createRun({
+      agents: [
+        makeAgent({ id: 'agent_a', codeEnvAvailable: false }),
+        makeAgent({ id: 'agent_b', codeEnvAvailable: true }),
+      ] as never,
+      signal,
+      streaming: true,
+      streamUsage: true,
+    });
+
+    const createMock = Run.create as jest.Mock;
+    const callArgs = createMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs.toolOutputReferences).toEqual({ enabled: true });
+  });
+
+  it('enables toolOutputReferences when only a subagent has codeEnvAvailable=true', async () => {
+    /**
+     * Real scenario: a parent agent without `execute_code` spawns a
+     * subagent that does have it. The SDK's shared tool-output
+     * reference registry serves every ToolNode in the run, so the
+     * subagent's `bash_tool` benefits from the run-level flag — and
+     * without this gate looking at `subagentAgentConfigs`, the
+     * subagent's `{{tool<idx>turn<turn>}}` placeholders would pass
+     * through unsubstituted.
+     */
+    const signal = new AbortController().signal;
+    const subagent = makeAgent({ id: 'agent_child', codeEnvAvailable: true });
+    await createRun({
+      agents: [
+        makeAgent({
+          id: 'agent_parent',
+          codeEnvAvailable: false,
+          subagents: { enabled: true, allowSelf: false, agent_ids: ['agent_child'] },
+          subagentAgentConfigs: [subagent],
+        }),
+      ] as never,
+      signal,
+      streaming: true,
+      streamUsage: true,
+    });
+
+    const createMock = Run.create as jest.Mock;
+    const callArgs = createMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs.toolOutputReferences).toEqual({ enabled: true });
+  });
+
+  it('enables toolOutputReferences when a transitively-nested subagent has codeEnvAvailable=true', async () => {
+    /**
+     * Multi-level delegation (parent → child → grandchild): only the
+     * grandchild has `codeEnvAvailable`. Verifies the recursion
+     * descends past one level of `subagentAgentConfigs`.
+     */
+    const signal = new AbortController().signal;
+    const grandchild = makeAgent({ id: 'agent_grandchild', codeEnvAvailable: true });
+    const child = makeAgent({
+      id: 'agent_child',
+      codeEnvAvailable: false,
+      subagents: { enabled: true, allowSelf: false, agent_ids: ['agent_grandchild'] },
+      subagentAgentConfigs: [grandchild],
+    });
+    await createRun({
+      agents: [
+        makeAgent({
+          id: 'agent_parent',
+          codeEnvAvailable: false,
+          subagents: { enabled: true, allowSelf: false, agent_ids: ['agent_child'] },
+          subagentAgentConfigs: [child],
+        }),
+      ] as never,
+      signal,
+      streaming: true,
+      streamUsage: true,
+    });
+
+    const createMock = Run.create as jest.Mock;
+    const callArgs = createMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs.toolOutputReferences).toEqual({ enabled: true });
+  });
+
+  it('terminates and omits toolOutputReferences for a cyclic agent tree with no codeenv', async () => {
+    /**
+     * Cycle safety: `A → B → A`, neither has `codeEnvAvailable`. The
+     * `visited` set in `anyAgentHasCodeEnv` must short-circuit the
+     * recursion — without it this would stack-overflow before
+     * `Run.create` is reached. Mirrors the cycle-safety pattern
+     * `buildSubagentConfigs` already uses elsewhere in this module.
+     */
+    const signal = new AbortController().signal;
+    type CyclicAgent = ReturnType<typeof makeAgent> & {
+      subagentAgentConfigs?: ReturnType<typeof makeAgent>[];
+    };
+    const a = makeAgent({ id: 'agent_a', codeEnvAvailable: false }) as CyclicAgent;
+    const b = makeAgent({ id: 'agent_b', codeEnvAvailable: false }) as CyclicAgent;
+    a.subagentAgentConfigs = [b];
+    b.subagentAgentConfigs = [a];
+
+    await createRun({
+      agents: [a] as never,
+      signal,
+      streaming: true,
+      streamUsage: true,
+    });
+
+    const createMock = Run.create as jest.Mock;
+    const callArgs = createMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs).not.toHaveProperty('toolOutputReferences');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: deferred-tool replay on HITL resume (Codex G3)
+//
+// The resume path rebuilds the graph with `messages: []` (state comes from the
+// durable checkpoint), so the in-turn `tool_search` results that mark a deferred
+// tool discovered aren't on the critical path. createRun's `discoveredToolNames`
+// input replays those names — captured at pause — so the paused deferred tool is
+// promoted back into `toolDefinitions` (and `defer_loading` flipped) and its schema
+// is restored to the rebuilt model binding.
+// ---------------------------------------------------------------------------
+describe('createRun deferred-tool replay (HITL resume)', () => {
+  /** Agent whose discoverable `deep_tool` lives ONLY in the registry (deferred). */
+  const makeDeferredAgent = (registryExtra: Array<[string, Record<string, unknown>]> = []) => {
+    const toolRegistry = new Map<string, Record<string, unknown>>([
+      ['deep_tool', { name: 'deep_tool', defer_loading: true }],
+      ...registryExtra,
+    ]);
+    return makeAgent({
+      hasDeferredTools: true,
+      // tool_search is in definitions; the discoverable deep_tool is NOT (deferred).
+      toolDefinitions: [{ name: 'tool_search' }],
+      toolRegistry,
+    });
+  };
+
+  const captureAgents = async (
+    agent: ReturnType<typeof makeAgent>,
+    extra: Record<string, unknown>,
+  ) => {
+    const signal = new AbortController().signal;
+    await createRun({
+      agents: [agent] as never,
+      signal,
+      streaming: true,
+      streamUsage: true,
+      ...extra,
+    });
+    const createMock = Run.create as jest.Mock;
+    const callArgs = createMock.mock.calls[0][0];
+    return callArgs.graphConfig.agents as Array<Record<string, unknown>>;
+  };
+
+  const defNames = (agents: Array<Record<string, unknown>>): string[] =>
+    (agents[0].toolDefinitions as Array<{ name: string }>).map((d) => d.name);
+
+  it('promotes a replayed discovered tool into toolDefinitions when messages is empty (resume)', async () => {
+    const agents = await captureAgents(makeDeferredAgent(), {
+      messages: [],
+      discoveredToolNames: ['deep_tool'],
+    });
+    expect(defNames(agents)).toContain('deep_tool');
+  });
+
+  it('does NOT include the deferred tool without replayed names (the bug being fixed)', async () => {
+    const agents = await captureAgents(makeDeferredAgent(), { messages: [] });
+    expect(defNames(agents)).not.toContain('deep_tool');
+  });
+
+  it('flips defer_loading=false on the replayed tool so the model binds it', async () => {
+    const agents = await captureAgents(makeDeferredAgent(), {
+      messages: [],
+      discoveredToolNames: ['deep_tool'],
+    });
+    const registry = agents[0].toolRegistry as Map<string, { defer_loading?: boolean }>;
+    expect(registry.get('deep_tool')?.defer_loading).toBe(false);
+  });
+
+  it('unions replayed names with names extracted from message history', async () => {
+    const toolSearchResult = {
+      _getType: () => 'tool',
+      name: 'tool_search',
+      content: JSON.stringify({ tools: [{ name: 'from_history' }] }),
+    };
+    const agents = await captureAgents(
+      makeDeferredAgent([['from_history', { name: 'from_history', defer_loading: true }]]),
+      { messages: [toolSearchResult], discoveredToolNames: ['deep_tool'] },
+    );
+    const names = defNames(agents);
+    expect(names).toContain('deep_tool'); // replayed
+    expect(names).toContain('from_history'); // extracted from messages
+  });
+
+  it('ignores replayed names when the agent has no deferred tools (inert)', async () => {
+    const agents = await captureAgents(
+      makeAgent({ hasDeferredTools: false, toolDefinitions: [], toolRegistry: new Map() }),
+      { messages: [], discoveredToolNames: ['deep_tool'] },
+    );
+    expect(defNames(agents)).not.toContain('deep_tool');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: HITL wiring gated to resumable callers (Codex J3)
+//
+// The tool-approval wiring (humanInTheLoop switch + PreToolUse hook) must engage ONLY for
+// callers that implement the pause/resume lifecycle. AgentClient passes hitlCapable: true;
+// the OpenAI-compatible + Responses controllers don't, so an approval-gated tool can't
+// pause on a route with no approval surface or resume endpoint.
+// ---------------------------------------------------------------------------
+describe('HITL wiring is gated on hitlCapable', () => {
+  const hitlAppConfig = {
+    config: {},
+    fileStrategy: FileSources.local,
+    imageOutputType: 'png',
+    endpoints: {
+      [EModelEndpoint.agents]: { toolApproval: { enabled: true } },
+    },
+  } as unknown as AppConfig;
+
+  const runAndGetConfig = async (extra: Record<string, unknown>) => {
+    await createRun({
+      agents: [makeAgent()] as never,
+      signal: new AbortController().signal,
+      appConfig: hitlAppConfig,
+      streaming: true,
+      streamUsage: true,
+      ...extra,
+    });
+    const createMock = Run.create as jest.Mock;
+    return createMock.mock.calls[0][0] as Record<string, unknown>;
+  };
+
+  it('attaches humanInTheLoop when the caller is hitlCapable and approval is enabled', async () => {
+    const config = await runAndGetConfig({ hitlCapable: true });
+    expect(config.humanInTheLoop).toBeDefined();
+    expect(config.hooks).toBeDefined();
+  });
+
+  it('does NOT attach HITL for a non-resumable caller even when approval is enabled', async () => {
+    const config = await runAndGetConfig({ hitlCapable: false });
+    expect(config).not.toHaveProperty('humanInTheLoop');
+    expect(config.graphConfig).toBeDefined();
+    // No checkpointer either — the run is identical to the no-HITL path.
+    expect(
+      (config.graphConfig as { compileOptions?: { checkpointer?: unknown } }).compileOptions
+        ?.checkpointer,
+    ).toBeUndefined();
+  });
+
+  it('defaults to non-HITL when hitlCapable is omitted', async () => {
+    const config = await runAndGetConfig({});
+    expect(config).not.toHaveProperty('humanInTheLoop');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: ask_user_question run wiring
+//
+// The ask tool pauses via a LangGraph `interrupt()` raised from its own body, so it
+// needs a durable checkpointer but NOT the tool-approval policy. It must be stripped
+// fail-closed from non-HITL callers (no resume surface) and from subagent child
+// configs (a child graph cannot pause the parent run).
+// ---------------------------------------------------------------------------
+describe('ask_user_question run wiring', () => {
+  const ASK = 'ask_user_question';
+  const askToolInstance = { name: ASK };
+  /** Approval policy NOT enabled — the ask tool must work without it. */
+  const plainAppConfig = {
+    config: {},
+    fileStrategy: FileSources.local,
+    imageOutputType: 'png',
+    endpoints: { [EModelEndpoint.agents]: {} },
+  } as unknown as AppConfig;
+
+  const runAndGetConfig = async (
+    agent: Record<string, unknown>,
+    extra: Record<string, unknown>,
+  ) => {
+    await createRun({
+      agents: [agent] as never,
+      signal: new AbortController().signal,
+      appConfig: plainAppConfig,
+      streaming: true,
+      streamUsage: true,
+      ...extra,
+    });
+    const createMock = Run.create as jest.Mock;
+    return createMock.mock.calls[0][0] as Record<string, unknown>;
+  };
+
+  const getCheckpointer = (config: Record<string, unknown>) =>
+    (config.graphConfig as { compileOptions?: { checkpointer?: unknown } }).compileOptions
+      ?.checkpointer;
+
+  const firstAgent = (config: Record<string, unknown>) =>
+    (config.graphConfig as { agents: Array<Record<string, unknown>> }).agents[0];
+
+  it('attaches the checkpointer WITHOUT humanInTheLoop when hitlCapable and the ask tool is present (approval disabled)', async () => {
+    const config = await runAndGetConfig(makeAgent({ tools: [askToolInstance] }), {
+      hitlCapable: true,
+    });
+    expect(config).not.toHaveProperty('humanInTheLoop');
+    expect(config).not.toHaveProperty('hooks');
+    expect(getCheckpointer(config)).toBeDefined();
+    const agent = firstAgent(config);
+    // The tool rides the in-graph direct path (graphTools) — never the
+    // event-dispatched surfaces, where interrupt() cannot pause the run.
+    expect((agent.graphTools as Array<{ name: string }>).map((t) => t.name)).toEqual([ASK]);
+    expect((agent.tools as Array<{ name: string }>).map((t) => t.name)).not.toContain(ASK);
+  });
+
+  it('detects the tool via toolRegistry / toolDefinitions too', async () => {
+    const viaRegistry = await runAndGetConfig(
+      makeAgent({ toolRegistry: new Map([[ASK, { name: ASK }]]) }),
+      { hitlCapable: true },
+    );
+    expect(getCheckpointer(viaRegistry)).toBeDefined();
+    jest.clearAllMocks();
+    const viaDefinitions = await runAndGetConfig(makeAgent({ toolDefinitions: [{ name: ASK }] }), {
+      hitlCapable: true,
+    });
+    expect(getCheckpointer(viaDefinitions)).toBeDefined();
+  });
+
+  it('strips the tool and attaches no checkpointer for a non-HITL caller', async () => {
+    const config = await runAndGetConfig(
+      makeAgent({
+        tools: [askToolInstance, { name: 'other_tool' }],
+        toolDefinitions: [{ name: ASK }, { name: 'other_tool' }],
+        toolRegistry: new Map([
+          [ASK, { name: ASK }],
+          ['other_tool', { name: 'other_tool' }],
+        ]),
+      }),
+      { hitlCapable: false },
+    );
+    expect(getCheckpointer(config)).toBeUndefined();
+    const agent = firstAgent(config);
+    expect((agent.tools as Array<{ name: string }>).map((t) => t.name)).toEqual(['other_tool']);
+    expect((agent.toolDefinitions as Array<{ name: string }>).map((d) => d.name)).toEqual([
+      'other_tool',
+    ]);
+    expect((agent.toolRegistry as Map<string, unknown>).has(ASK)).toBe(false);
+    expect((agent.toolRegistry as Map<string, unknown>).has('other_tool')).toBe(true);
+  });
+
+  it('does not mutate the caller-owned toolRegistry when stripping (clone-before-mutate)', async () => {
+    const sharedRegistry = new Map([[ASK, { name: ASK }]]);
+    await runAndGetConfig(makeAgent({ toolRegistry: sharedRegistry }), { hitlCapable: false });
+    expect(sharedRegistry.has(ASK)).toBe(true);
+  });
+
+  it('strips the tool from subagent child configs even on an HITL-capable run', async () => {
+    const child = makeAgent({
+      id: 'agent_child',
+      name: 'Child',
+      tools: [askToolInstance],
+      toolDefinitions: [{ name: ASK }],
+      toolRegistry: new Map([[ASK, { name: ASK }]]),
+    });
+    const parent = makeAgent({
+      tools: [askToolInstance],
+      subagents: { enabled: true, allowSelf: false },
+      subagentAgentConfigs: [child],
+    });
+    const config = await runAndGetConfig(parent, { hitlCapable: true });
+    // Parent keeps the tool — as an in-graph direct tool — and gets the checkpointer…
+    expect((firstAgent(config).graphTools as Array<{ name: string }>).map((t) => t.name)).toEqual([
+      ASK,
+    ]);
+    expect(getCheckpointer(config)).toBeDefined();
+    // …the child copy is stripped everywhere, with no graphTools replacement.
+    const subagentConfigs = firstAgent(config).subagentConfigs as Array<{
+      agentInputs: Record<string, unknown>;
+    }>;
+    expect(subagentConfigs).toHaveLength(1);
+    const childInputs = subagentConfigs[0].agentInputs;
+    expect(childInputs.graphTools).toBeUndefined();
+    expect((childInputs.tools as Array<{ name: string }>).map((t) => t.name)).not.toContain(ASK);
+    expect((childInputs.toolDefinitions as Array<{ name: string }>).map((d) => d.name)).toEqual([]);
+    expect((childInputs.toolRegistry as Map<string, unknown>).has(ASK)).toBe(false);
+  });
+
+  it('a subagent-only ask tool attaches no checkpointer (top-level agents decide)', async () => {
+    const child = makeAgent({ id: 'agent_child', name: 'Child', tools: [askToolInstance] });
+    const parent = makeAgent({
+      subagents: { enabled: true, allowSelf: false },
+      subagentAgentConfigs: [child],
+    });
+    const config = await runAndGetConfig(parent, { hitlCapable: true });
+    expect(getCheckpointer(config)).toBeUndefined();
+  });
+
+  it('excludes ask_user_question from eager event tool execution', async () => {
+    const config = await runAndGetConfig(makeAgent(), { hitlCapable: true });
+    const eager = config.eagerEventToolExecution as { excludeToolNames: string[] };
+    expect(eager.excludeToolNames).toContain(ASK);
+  });
+
+  it('admin filteredTools is a real kill switch: strips the tool and blocks the checkpointer even on an HITL-capable run', async () => {
+    const filteredConfig = {
+      ...(plainAppConfig as unknown as Record<string, unknown>),
+      filteredTools: [ASK],
+    } as unknown as AppConfig;
+    await createRun({
+      agents: [
+        makeAgent({
+          tools: [askToolInstance],
+          toolDefinitions: [{ name: ASK }],
+          toolRegistry: new Map([[ASK, { name: ASK }]]),
+        }),
+      ] as never,
+      signal: new AbortController().signal,
+      appConfig: filteredConfig,
+      streaming: true,
+      streamUsage: true,
+      hitlCapable: true,
+    });
+    const config = (Run.create as jest.Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(getCheckpointer(config)).toBeUndefined();
+    const agent = firstAgent(config);
+    expect((agent.tools as Array<{ name: string }>).map((t) => t.name)).toEqual([]);
+    expect((agent.toolDefinitions as Array<{ name: string }>).map((d) => d.name)).toEqual([]);
+    expect((agent.toolRegistry as Map<string, unknown>).has(ASK)).toBe(false);
+  });
+
+  it('an includedTools allowlist disables the tool unless listed (allowlist precedence)', async () => {
+    const withoutTool = {
+      ...(plainAppConfig as unknown as Record<string, unknown>),
+      includedTools: ['calculator'],
+    } as unknown as AppConfig;
+    await createRun({
+      agents: [makeAgent({ tools: [askToolInstance] })] as never,
+      signal: new AbortController().signal,
+      appConfig: withoutTool,
+      streaming: true,
+      streamUsage: true,
+      hitlCapable: true,
+    });
+    let config = (Run.create as jest.Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(getCheckpointer(config)).toBeUndefined();
+    expect((firstAgent(config).tools as Array<{ name: string }>).map((t) => t.name)).toEqual([]);
+
+    jest.clearAllMocks();
+    const withTool = {
+      ...(plainAppConfig as unknown as Record<string, unknown>),
+      // includedTools wins over filteredTools — same precedence as loadAndFormatTools.
+      includedTools: [ASK],
+      filteredTools: [ASK],
+    } as unknown as AppConfig;
+    await createRun({
+      agents: [makeAgent({ tools: [askToolInstance] })] as never,
+      signal: new AbortController().signal,
+      appConfig: withTool,
+      streaming: true,
+      streamUsage: true,
+      hitlCapable: true,
+    });
+    config = (Run.create as jest.Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(getCheckpointer(config)).toBeDefined();
+    expect((firstAgent(config).graphTools as Array<{ name: string }>).map((t) => t.name)).toEqual([
+      ASK,
+    ]);
+  });
+
+  it('composes with the approval policy: both humanInTheLoop and the checkpointer attach', async () => {
+    const approvalConfig = {
+      config: {},
+      fileStrategy: FileSources.local,
+      imageOutputType: 'png',
+      endpoints: { [EModelEndpoint.agents]: { toolApproval: { enabled: true } } },
+    } as unknown as AppConfig;
+    await createRun({
+      agents: [makeAgent({ tools: [askToolInstance] })] as never,
+      signal: new AbortController().signal,
+      appConfig: approvalConfig,
+      streaming: true,
+      streamUsage: true,
+      hitlCapable: true,
+    });
+    const config = (Run.create as jest.Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(config.humanInTheLoop).toBeDefined();
+    expect(getCheckpointer(config)).toBeDefined();
   });
 });

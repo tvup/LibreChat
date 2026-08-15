@@ -1,13 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  PermissionTypes,
   QueryKeys,
   dataService,
-  promptPermissionsSchema,
-  memoryPermissionsSchema,
-  mcpServersPermissionsSchema,
+  agentPermissionsSchema,
   marketplacePermissionsSchema,
+  mcpServersPermissionsSchema,
+  memoryPermissionsSchema,
   peoplePickerPermissionsSchema,
+  promptPermissionsSchema,
   remoteAgentsPermissionsSchema,
+  skillPermissionsSchema,
 } from 'librechat-data-provider';
 import type {
   QueryObserverResult,
@@ -41,254 +44,120 @@ export const useListRoles = (
   });
 };
 
-export const useUpdatePromptPermissionsMutation = (
-  options?: t.UpdatePromptPermOptions,
-): UseMutationResult<
-  t.UpdatePermResponse,
-  t.TError | undefined,
-  t.UpdatePromptPermVars,
-  unknown
-> => {
-  const queryClient = useQueryClient();
-  const { onMutate, onSuccess, onError } = options ?? {};
-  return useMutation(
-    (variables) => {
-      promptPermissionsSchema.partial().parse(variables.updates);
-      return dataService.updatePromptPermissions(variables);
-    },
-    {
-      onSuccess: (data, variables, context) => {
-        queryClient.invalidateQueries([QueryKeys.roles, variables.roleName]);
-        if (onSuccess) {
-          onSuccess(data, variables, context);
-        }
-      },
-      onError: (...args) => {
-        const error = args[0];
-        if (error != null) {
-          console.error('Failed to update prompt permissions:', error);
-        }
-        if (onError) {
-          onError(...args);
-        }
-      },
-      onMutate,
-    },
-  );
+/**
+ * Adapter for de tidligere syv per-type-mutations: den nye unified
+ * /api/admin/roles/:name/permissions handler merger partial bodies, så
+ * vi kan sende `{ permissions: { [type]: updates } }` og kun røre én type.
+ */
+type AnyPermVars = { roleName: string; updates: Record<string, boolean> };
+type AnyPermOptions = {
+  onMutate?: (variables: AnyPermVars) => unknown;
+  onSuccess?: (data: t.UpdatePermResponse, variables: AnyPermVars, context: unknown) => unknown;
+  onError?: (
+    error: t.TError | undefined,
+    variables: AnyPermVars,
+    context: unknown,
+  ) => unknown;
 };
 
-export const useUpdateAgentPermissionsMutation = (
-  options?: t.UpdateAgentPermOptions,
-): UseMutationResult<
-  t.UpdatePermResponse,
-  t.TError | undefined,
-  t.UpdateAgentPermVars,
-  unknown
-> => {
+function buildPermissionMutation<TVars extends AnyPermVars>(
+  permissionType: PermissionTypes,
+  schema: { partial: () => { parse: (data: unknown) => unknown } },
+  errorLabel: string,
+  options?: AnyPermOptions,
+): UseMutationResult<t.UpdatePermResponse, t.TError | undefined, TVars, unknown> {
   const queryClient = useQueryClient();
   const { onMutate, onSuccess, onError } = options ?? {};
-  return useMutation(
+  return useMutation<t.UpdatePermResponse, t.TError | undefined, TVars, unknown>(
     (variables) => {
-      promptPermissionsSchema.partial().parse(variables.updates);
-      return dataService.updateAgentPermissions(variables);
+      schema.partial().parse(variables.updates);
+      return dataService.updateRolePermissions({
+        roleName: variables.roleName,
+        permissions: { [permissionType]: variables.updates },
+      });
     },
     {
       onSuccess: (data, variables, context) => {
         queryClient.invalidateQueries([QueryKeys.roles, variables.roleName]);
-        if (onSuccess != null) {
-          onSuccess(data, variables, context);
-        }
+        onSuccess?.(data, variables, context);
       },
-      onError: (...args) => {
-        const error = args[0];
+      onError: (error, variables, context) => {
         if (error != null) {
-          console.error('Failed to update prompt permissions:', error);
+          console.error(`Failed to update ${errorLabel} permissions:`, error);
         }
-        if (onError != null) {
-          onError(...args);
-        }
+        onError?.(error, variables, context);
       },
       onMutate,
     },
   );
-};
+}
 
-export const useUpdateMemoryPermissionsMutation = (
-  options?: t.UpdateMemoryPermOptions,
-): UseMutationResult<
-  t.UpdatePermResponse,
-  t.TError | undefined,
-  t.UpdateMemoryPermVars,
-  unknown
-> => {
-  const queryClient = useQueryClient();
-  const { onMutate, onSuccess, onError } = options ?? {};
-  return useMutation(
-    (variables) => {
-      memoryPermissionsSchema.partial().parse(variables.updates);
-      return dataService.updateMemoryPermissions(variables);
-    },
-    {
-      onSuccess: (data, variables, context) => {
-        queryClient.invalidateQueries([QueryKeys.roles, variables.roleName]);
-        if (onSuccess) {
-          onSuccess(data, variables, context);
-        }
-      },
-      onError: (...args) => {
-        const error = args[0];
-        if (error != null) {
-          console.error('Failed to update memory permissions:', error);
-        }
-        if (onError) {
-          onError(...args);
-        }
-      },
-      onMutate,
-    },
+export const useUpdatePromptPermissionsMutation = (options?: t.UpdatePromptPermOptions) =>
+  buildPermissionMutation<t.UpdatePromptPermVars>(
+    PermissionTypes.PROMPTS,
+    promptPermissionsSchema,
+    'prompt',
+    options,
   );
-};
+
+export const useUpdateAgentPermissionsMutation = (options?: t.UpdateAgentPermOptions) =>
+  buildPermissionMutation<t.UpdateAgentPermVars>(
+    PermissionTypes.AGENTS,
+    agentPermissionsSchema,
+    'agent',
+    options,
+  );
+
+export const useUpdateMemoryPermissionsMutation = (options?: t.UpdateMemoryPermOptions) =>
+  buildPermissionMutation<t.UpdateMemoryPermVars>(
+    PermissionTypes.MEMORIES,
+    memoryPermissionsSchema,
+    'memory',
+    options,
+  );
+
+export const useUpdateSkillPermissionsMutation = (options?: t.UpdateSkillPermOptions) =>
+  buildPermissionMutation<t.UpdateSkillPermVars>(
+    PermissionTypes.SKILLS,
+    skillPermissionsSchema,
+    'skill',
+    options,
+  );
 
 export const useUpdatePeoplePickerPermissionsMutation = (
   options?: t.UpdatePeoplePickerPermOptions,
-): UseMutationResult<
-  t.UpdatePermResponse,
-  t.TError | undefined,
-  t.UpdatePeoplePickerPermVars,
-  unknown
-> => {
-  const queryClient = useQueryClient();
-  const { onMutate, onSuccess, onError } = options ?? {};
-  return useMutation(
-    (variables) => {
-      peoplePickerPermissionsSchema.partial().parse(variables.updates);
-      return dataService.updatePeoplePickerPermissions(variables);
-    },
-    {
-      onSuccess: (data, variables, context) => {
-        queryClient.invalidateQueries([QueryKeys.roles, variables.roleName]);
-        if (onSuccess) {
-          onSuccess(data, variables, context);
-        }
-      },
-      onError: (...args) => {
-        const error = args[0];
-        if (error != null) {
-          console.error('Failed to update people picker permissions:', error);
-        }
-        if (onError) {
-          onError(...args);
-        }
-      },
-      onMutate,
-    },
+) =>
+  buildPermissionMutation<t.UpdatePeoplePickerPermVars>(
+    PermissionTypes.PEOPLE_PICKER,
+    peoplePickerPermissionsSchema,
+    'people picker',
+    options,
   );
-};
 
-export const useUpdateMCPServersPermissionsMutation = (
-  options?: t.UpdateMCPServersPermOptions,
-): UseMutationResult<
-  t.UpdatePermResponse,
-  t.TError | undefined,
-  t.UpdateMCPServersPermVars,
-  unknown
-> => {
-  const queryClient = useQueryClient();
-  const { onMutate, onSuccess, onError } = options ?? {};
-  return useMutation(
-    (variables) => {
-      mcpServersPermissionsSchema.partial().parse(variables.updates);
-      return dataService.updateMCPServersPermissions(variables);
-    },
-    {
-      onSuccess: (data, variables, context) => {
-        queryClient.invalidateQueries([QueryKeys.roles, variables.roleName]);
-        if (onSuccess) {
-          onSuccess(data, variables, context);
-        }
-      },
-      onError: (...args) => {
-        const error = args[0];
-        if (error != null) {
-          console.error('Failed to update MCP servers permissions:', error);
-        }
-        if (onError) {
-          onError(...args);
-        }
-      },
-      onMutate,
-    },
+export const useUpdateMCPServersPermissionsMutation = (options?: t.UpdateMCPServersPermOptions) =>
+  buildPermissionMutation<t.UpdateMCPServersPermVars>(
+    PermissionTypes.MCP_SERVERS,
+    mcpServersPermissionsSchema,
+    'MCP servers',
+    options,
   );
-};
 
 export const useUpdateMarketplacePermissionsMutation = (
   options?: t.UpdateMarketplacePermOptions,
-): UseMutationResult<
-  t.UpdatePermResponse,
-  t.TError | undefined,
-  t.UpdateMarketplacePermVars,
-  unknown
-> => {
-  const queryClient = useQueryClient();
-  const { onMutate, onSuccess, onError } = options ?? {};
-  return useMutation(
-    (variables) => {
-      marketplacePermissionsSchema.partial().parse(variables.updates);
-      return dataService.updateMarketplacePermissions(variables);
-    },
-    {
-      onSuccess: (data, variables, context) => {
-        queryClient.invalidateQueries([QueryKeys.roles, variables.roleName]);
-        if (onSuccess) {
-          onSuccess(data, variables, context);
-        }
-      },
-      onError: (...args) => {
-        const error = args[0];
-        if (error != null) {
-          console.error('Failed to update marketplace permissions:', error);
-        }
-        if (onError) {
-          onError(...args);
-        }
-      },
-      onMutate,
-    },
+) =>
+  buildPermissionMutation<t.UpdateMarketplacePermVars>(
+    PermissionTypes.MARKETPLACE,
+    marketplacePermissionsSchema,
+    'marketplace',
+    options,
   );
-};
 
 export const useUpdateRemoteAgentsPermissionsMutation = (
   options?: t.UpdateRemoteAgentsPermOptions,
-): UseMutationResult<
-  t.UpdatePermResponse,
-  t.TError | undefined,
-  t.UpdateRemoteAgentsPermVars,
-  unknown
-> => {
-  const queryClient = useQueryClient();
-  const { onMutate, onSuccess, onError } = options ?? {};
-  return useMutation(
-    (variables) => {
-      remoteAgentsPermissionsSchema.partial().parse(variables.updates);
-      return dataService.updateRemoteAgentsPermissions(variables);
-    },
-    {
-      onSuccess: (data, variables, context) => {
-        queryClient.invalidateQueries([QueryKeys.roles, variables.roleName]);
-        if (onSuccess) {
-          onSuccess(data, variables, context);
-        }
-      },
-      onError: (...args) => {
-        const error = args[0];
-        if (error != null) {
-          console.error('Failed to update remote agents permissions:', error);
-        }
-        if (onError) {
-          onError(...args);
-        }
-      },
-      onMutate,
-    },
+) =>
+  buildPermissionMutation<t.UpdateRemoteAgentsPermVars>(
+    PermissionTypes.REMOTE_AGENTS,
+    remoteAgentsPermissionsSchema,
+    'remote agents',
+    options,
   );
-};

@@ -11,6 +11,8 @@ jest.mock('@librechat/agents', () => ({
 jest.mock('@librechat/api', () => ({
   unescapeLaTeX: jest.fn((x) => x),
   countTokens: jest.fn().mockResolvedValue(10),
+  sendFeedbackScore: jest.fn().mockResolvedValue(undefined),
+  traceIdForMessage: jest.fn((messageId) => `trace-${messageId}`),
 }));
 
 jest.mock('@librechat/data-schemas', () => ({
@@ -46,10 +48,31 @@ jest.mock('~/server/services/Artifacts/update', () => ({
 
 jest.mock('~/server/middleware/requireJwtAuth', () => (req, res, next) => next());
 
-jest.mock('~/server/middleware', () => ({
-  requireJwtAuth: (req, res, next) => next(),
-  validateMessageReq: (req, res, next) => next(),
-}));
+jest.mock('~/server/middleware', () => {
+  const validateMessageReq = jest.fn((req, res, next) => next());
+  const prepareMessageRequestValidation = jest.fn((req, res, next) => {
+    req.messageRequestValidation = {
+      conversationId: 'convo-1',
+      shouldFetchMessages: true,
+      promise: Promise.resolve({ ok: true }),
+    };
+    next();
+  });
+  const sendValidationResponse = jest.fn((res, result) => {
+    if (result.send) {
+      return res.status(result.status).send(result.body);
+    }
+    return res.status(result.status).json(result.body);
+  });
+
+  return {
+    requireJwtAuth: (req, res, next) => next(),
+    validateMessageReq,
+    sendValidationResponse,
+    prepareMessageRequestValidation,
+    configMiddleware: (req, res, next) => next(),
+  };
+});
 
 jest.mock('~/db/models', () => ({
   Message: {
