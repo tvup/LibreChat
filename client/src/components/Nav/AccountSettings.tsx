@@ -183,10 +183,10 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           <GearIcon className="icon-md" aria-hidden="true" />
           {localize('com_nav_settings')}
         </Menu.MenuItem>
-        {canAccessAdmin && (
+        {canAccessAdmin && startupConfig?.adminPanelURL && (
           <Menu.MenuItem
             onClick={() => {
-              window.location.href = '/admin/';
+              window.location.href = startupConfig.adminPanelURL;
             }}
             className="select-item text-sm"
           >
