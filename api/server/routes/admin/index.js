@@ -53,5 +53,8 @@ router.use('/config', require('./config'));
 router.use('/grants', require('./grants'));
 router.use('/groups', require('./groups'));
 router.use('/skills', require('./skills'));
+router.use('/code-environments', require('./code'));
+router.use('/langfuse', require('./langfuse'));
+router.use('/audit-log', require('./audit'));
 
 module.exports = router;

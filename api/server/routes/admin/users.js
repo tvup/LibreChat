@@ -1,12 +1,26 @@
 const express = require('express');
 const crypto = require('crypto');
-const { adminUserService, createAdminUsersHandlers } = require('@librechat/api');
+const mongoose = require('mongoose');
+const {
+  adminUserService,
+  createAdminUsersHandlers,
+  revokeUserCodeEnvironmentWorkers,
+} = require('@librechat/api');
 const { SystemCapabilities } = require('@librechat/data-schemas');
 const { requireCapability } = require('~/server/middleware/roles/capabilities');
+const { requireJwtAuth } = require('~/server/middleware');
+const {
+  drainAgentTriggerDeliveriesForUser,
+  prepareAgentTriggerUserPurge,
+  cancelAgentTriggerUserPurge,
+  purgeAgentTriggerDeliveriesForUser,
+} = require('~/server/services/Agents/triggers');
 const db = require('~/models');
+const { getAppConfig, invalidateCodeEnvironmentConfigCache } = require('~/server/services/Config');
 
 const router = express.Router();
 
+const requireAdminAccess = requireCapability(SystemCapabilities.ACCESS_ADMIN);
 const requireReadUsers = requireCapability(SystemCapabilities.READ_USERS);
 
 /**
@@ -18,13 +32,29 @@ const requireReadUsers = requireCapability(SystemCapabilities.READ_USERS);
 const upstreamHandlers = createAdminUsersHandlers({
   findUsers: db.findUsers,
   countUsers: db.countUsers,
+  beginAgentTriggerUserDeletion: db.beginAgentTriggerUserDeletion,
+  cancelAgentTriggerUserDeletion: db.cancelAgentTriggerUserDeletion,
+  drainAgentTriggerDeliveriesForUser,
+  prepareAgentTriggerUserPurge,
+  cancelAgentTriggerUserPurge,
+  purgeAgentTriggerDeliveriesForUser,
+  revokeUserCodeEnvironmentWorkers: async (userId) =>
+    revokeUserCodeEnvironmentWorkers({
+      mongoose,
+      userId,
+      appConfig: await getAppConfig({ baseOnly: true }),
+    }),
   deleteUserById: db.deleteUserById,
+  deleteUserCodeEnvironments: db.deleteUserCodeEnvironments,
+  invalidateCodeEnvironmentConfigCache,
   deleteConfig: db.deleteConfig,
   deleteAclEntries: db.deleteAclEntries,
 });
 
 const SAFE_USER_FIELDS =
   '_id name username email role provider avatar emailVerified twoFactorEnabled createdAt updatedAt';
+
+router.use(requireJwtAuth, requireAdminAccess);
 
 router.get('/export/csv', async (req, res) => {
   try {

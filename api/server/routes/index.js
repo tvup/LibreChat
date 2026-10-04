@@ -2,6 +2,7 @@ const accessPermissions = require('./accessPermissions');
 const assistants = require('./assistants');
 const categories = require('./categories');
 const admin = require('./admin');
+const codeEnvironments = require('./code-environments');
 const endpoints = require('./endpoints');
 const staticRoute = require('./static');
 const messages = require('./messages');
@@ -9,14 +10,17 @@ const memories = require('./memories');
 const presets = require('./presets');
 const projects = require('./projects');
 const prompts = require('./prompts');
+const schedules = require('./schedules');
 const skills = require('./skills');
 const balance = require('./balance');
 const actions = require('./actions');
 const apiKeys = require('./apiKeys');
 const banner = require('./banner');
+const openapi = require('./openapi');
 const search = require('./search');
 const models = require('./models');
 const convos = require('./convos');
+const traces = require('./traces');
 const config = require('./config');
 const agents = require('./agents');
 const roles = require('./roles');
@@ -29,12 +33,15 @@ const keys = require('./keys');
 const user = require('./user');
 const mcp = require('./mcp');
 const rum = require('./rum');
+const insights = require('./insights');
 
 module.exports = {
+  insights,
   rum,
   mcp,
   auth,
   admin,
+  codeEnvironments,
   keys,
   apiKeys,
   user,
@@ -44,13 +51,16 @@ module.exports = {
   files,
   share,
   banner,
+  openapi,
   agents,
   convos,
+  traces,
   search,
   config,
   models,
   prompts,
   projects,
+  schedules,
   skills,
   actions,
   presets,

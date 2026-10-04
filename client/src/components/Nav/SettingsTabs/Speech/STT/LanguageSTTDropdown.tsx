@@ -105,8 +105,8 @@ export default function LanguageSTTDropdown() {
         value={languageSTT}
         onChange={handleSelect}
         options={languageOptions}
-        sizeClasses="[--anchor-max-height:256px]"
         testId="LanguageSTTDropdown"
+        sizeClasses="z-50"
         className="z-50"
         aria-labelledby={labelId}
         disabled={!speechToText}
