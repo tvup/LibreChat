@@ -26,6 +26,8 @@ const socialLogin =
       }
 
       const providerKey = `${provider}Id`;
+      /** Repeated by createSocialUser's provisioning when a concurrent first login wins the insert. */
+      const lookup = { findUser, provider, providerId: id, email };
       let existingUser = null;
 
       /** First try to find user by provider ID (e.g., googleId, facebookId) */
@@ -169,6 +171,7 @@ const socialLogin =
         name,
         emailVerified,
         appConfig,
+        lookup,
       });
       return passResult(newUser);
     } catch (err) {

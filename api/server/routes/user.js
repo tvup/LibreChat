@@ -6,13 +6,19 @@ const {
   getTermsStatusController,
   acceptTermsController,
   verifyEmailController,
+  requestEmailChangeController,
+  confirmEmailChangeController,
   deleteUserController,
   getUserController,
 } = require('~/server/controllers/UserController');
 const {
   verifyEmailLimiter,
+  emailChangeLimiter,
+  emailChangeSubmissionLimiter,
+  emailChangeSubmissionIpLimiter,
   verifyEmailSubmissionLimiter,
   configMiddleware,
+  strictConfigMiddleware,
   canDeleteAccount,
   requireJwtAuth,
 } = require('~/server/middleware');
@@ -43,11 +49,24 @@ router.patch('/preferred-name', requireJwtAuth, async (req, res) => {
     const { updateUser } = require('~/models');
     await updateUser(req.user.id, { preferredName: preferredName.trim() });
     res.status(200).json({ preferredName: preferredName.trim() });
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error updating preferred name' });
   }
 });
 
+router.post(
+  '/email/change',
+  requireJwtAuth,
+  emailChangeLimiter,
+  strictConfigMiddleware,
+  requestEmailChangeController,
+);
+router.post(
+  '/email/verify',
+  emailChangeSubmissionIpLimiter,
+  emailChangeSubmissionLimiter,
+  confirmEmailChangeController,
+);
 router.post('/verify', verifyEmailSubmissionLimiter, verifyEmailController);
 router.post('/verify/resend', verifyEmailLimiter, resendVerificationController);
 
@@ -55,7 +74,10 @@ router.post('/verify/resend', verifyEmailLimiter, resendVerificationController);
 router.get('/linked-accounts', requireJwtAuth, async (req, res) => {
   try {
     const { getUserById } = require('~/models');
-    const user = await getUserById(req.user.id, 'provider googleId githubId discordId facebookId appleId openidId samlId ldapId');
+    const user = await getUserById(
+      req.user.id,
+      'provider googleId githubId discordId facebookId appleId openidId samlId ldapId',
+    );
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -84,15 +106,18 @@ router.get('/linked-accounts', requireJwtAuth, async (req, res) => {
     }
 
     res.status(200).json({ providers, primaryProvider: user.provider });
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error fetching linked accounts' });
   }
 });
 
 router.delete('/linked-accounts/:provider', requireJwtAuth, async (req, res) => {
   try {
-    const { getUserById, updateUser } = require('~/models');
-    const user = await getUserById(req.user.id, 'provider googleId githubId discordId facebookId appleId openidId samlId ldapId password');
+    const { getUserById } = require('~/models');
+    const user = await getUserById(
+      req.user.id,
+      'provider googleId githubId discordId facebookId appleId openidId samlId ldapId password',
+    );
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -119,7 +144,9 @@ router.delete('/linked-accounts/:provider', requireJwtAuth, async (req, res) => 
     }
 
     if (user.provider === providerToUnlink && !user.password) {
-      return res.status(400).json({ message: 'Cannot unlink primary provider without a password set' });
+      return res
+        .status(400)
+        .json({ message: 'Cannot unlink primary provider without a password set' });
     }
 
     const mongoose = require('mongoose');
@@ -127,7 +154,7 @@ router.delete('/linked-accounts/:provider', requireJwtAuth, async (req, res) => 
     await User.findByIdAndUpdate(req.user.id, { $unset: { [providerKey]: '' } });
 
     res.status(200).json({ message: `${providerToUnlink} unlinked successfully` });
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error unlinking account' });
   }
 });

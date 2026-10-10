@@ -1,6 +1,13 @@
 import { SettingsTabValues } from 'librechat-data-provider';
 import type { SettingEntry } from './types';
 import {
+  unseenTabBadgeAtom,
+  replyNotificationsAtom,
+  replyNotificationSoundAtom,
+  unlockReplyNotificationSound,
+  requestReplyNotificationPermission,
+} from '~/hooks';
+import {
   TextToSpeechSwitch,
   VoiceDropdown,
   CacheTTSSwitch,
@@ -26,29 +33,32 @@ import { ArchiveAllChats } from '../SettingsTabs/Data/ArchiveAllChats';
 import { toggleControl, ThemeSetting, LangSetting } from './controls';
 import BackupCodesItem from '../SettingsTabs/Account/BackupCodesItem';
 import { EngineSTTSetting, EngineTTSSetting } from './SpeechControls';
+import UiScaleSelector from '../SettingsTabs/General/UiScaleSelector';
 import FontSizeSelector from '../SettingsTabs/Chat/FontSizeSelector';
 import ChatTitleInTab from '../SettingsTabs/General/ChatTitleInTab';
+import LinkedAccounts from '../SettingsTabs/Account/LinkedAccounts';
 import AdvancedPrompts from '../SettingsTabs/Chat/AdvancedPrompts';
 import DuringRunAction from '../SettingsTabs/Chat/DuringRunAction';
 import DeleteAccount from '../SettingsTabs/Account/DeleteAccount';
 import StatefulWorkspaceDefault from './StatefulWorkspaceDefault';
+import PreferredName from '../SettingsTabs/Account/PreferredName';
 import { ForkSettings } from '../SettingsTabs/Chat/ForkSettings';
 import ChatDirection from '../SettingsTabs/Chat/ChatDirection';
 import { DeleteCache } from '../SettingsTabs/Data/DeleteCache';
 import { ManageFiles } from '../SettingsTabs/Data/ManageFiles';
 import { smoothStreamingAtom } from '~/store/smoothStreaming';
+import ChangeEmail from '../SettingsTabs/Account/ChangeEmail';
 import { RevokeKeys } from '../SettingsTabs/Data/RevokeKeys';
 import { ClearChats } from '../SettingsTabs/Data/ClearChats';
 import { TokenCredits, AutoRefill } from './BillingControls';
 import AdminPanel from '../SettingsTabs/General/AdminPanel';
 import SharedLinks from '../SettingsTabs/Data/SharedLinks';
 import ImageResize from '../SettingsTabs/Chat/ImageResize';
+import Passkeys from '../SettingsTabs/Account/Passkeys';
 import { showThinkingAtom } from '~/store/showThinking';
 import ProviderKeys from '../SettingsTabs/ProviderKeys';
 import { autoScrollAtom } from '~/store/autoScroll';
 import Avatar from '../SettingsTabs/Account/Avatar';
-import PreferredName from '../SettingsTabs/Account/PreferredName';
-import LinkedAccounts from '../SettingsTabs/Account/LinkedAccounts';
 import CodeEnvironments from './CodeEnvironments';
 import About from '../SettingsTabs/About/About';
 import ApiKeys from '../SettingsTabs/ApiKeys';
@@ -91,6 +101,14 @@ export const registry: SettingEntry[] = [
     labelKey: 'com_nav_font_size',
     keywords: ['text', 'zoom'],
     Component: FontSizeSelector,
+  },
+  {
+    id: 'uiScale',
+    tab: GENERAL,
+    section: 'appearance',
+    labelKey: 'com_nav_ui_scale',
+    keywords: ['zoom', 'scale', 'size', 'interface', 'display'],
+    Component: UiScaleSelector,
   },
   {
     id: 'chatDirection',
@@ -171,6 +189,60 @@ export const registry: SettingEntry[] = [
     keywords: ['tab', 'title', 'browser', 'window'],
     Component: ChatTitleInTab,
   },
+  // General · Notifications
+  {
+    id: 'unseenTabBadge',
+    tab: GENERAL,
+    section: 'notifications',
+    show: (ctx) => ctx.replyTabBadgeAllowed,
+    labelKey: 'com_nav_unseen_tab_badge',
+    Component: toggleControl({
+      stateAtom: unseenTabBadgeAtom,
+      localizationKey: 'com_nav_unseen_tab_badge',
+      switchId: 'unseenTabBadge',
+      hoverCardText: 'com_nav_info_unseen_tab_badge',
+    }),
+  },
+  {
+    id: 'replyNotifications',
+    tab: GENERAL,
+    section: 'notifications',
+    show: (ctx) => ctx.replyNotificationsAllowed,
+    labelKey: 'com_nav_reply_notifications',
+    Component: toggleControl({
+      stateAtom: replyNotificationsAtom,
+      localizationKey: 'com_nav_reply_notifications',
+      switchId: 'replyNotifications',
+      hoverCardText: 'com_nav_info_reply_notifications',
+      /* The toggle click is the user gesture browsers require before asking for
+         desktop-notification permission. */
+      onCheckedChange: (value) => {
+        if (value) {
+          requestReplyNotificationPermission();
+        }
+      },
+    }),
+  },
+  {
+    id: 'replyNotificationSound',
+    tab: GENERAL,
+    section: 'notifications',
+    show: (ctx) => ctx.replyNotificationSoundAllowed,
+    labelKey: 'com_nav_reply_notification_sound',
+    Component: toggleControl({
+      stateAtom: replyNotificationSoundAtom,
+      localizationKey: 'com_nav_reply_notification_sound',
+      switchId: 'replyNotificationSound',
+      hoverCardText: 'com_nav_info_reply_notification_sound',
+      /* Browsers only let an audio output open behind a user gesture, and alerts fire while
+         the tab is unfocused; this click is the gesture that unlocks it. */
+      onCheckedChange: (value) => {
+        if (value) {
+          unlockReplyNotificationSound();
+        }
+      },
+    }),
+  },
   // General · Accessibility
   {
     id: 'keepScreenAwake',
@@ -215,19 +287,6 @@ export const registry: SettingEntry[] = [
     labelKey: 'com_nav_during_run_action',
     keywords: ['steer', 'queue', 'interrupt', 'generating'],
     Component: DuringRunAction,
-  },
-  {
-    id: 'steerInterruptsByDefault',
-    tab: CHAT,
-    section: 'sending',
-    labelKey: 'com_ui_steer_interrupts_default',
-    keywords: ['steer', 'interrupt', 'preempt', 'generating', 'stop'],
-    Component: toggleControl({
-      stateAtom: store.steerInterruptsByDefault,
-      localizationKey: 'com_ui_steer_interrupts_default',
-      switchId: 'steerInterruptsByDefault',
-      hoverCardText: 'com_ui_steer_interrupts_default_info',
-    }),
   },
   {
     id: 'saveDrafts',
@@ -725,13 +784,22 @@ export const registry: SettingEntry[] = [
     labelKey: 'com_nav_linked_accounts',
     Component: LinkedAccounts,
   },
+  {
+    id: 'changeEmail',
+    tab: ACCOUNT,
+    section: 'profile',
+    labelKey: 'com_ui_settings_label_change_email',
+    keywords: ['email', 'address', 'account'],
+    show: (ctx) => ctx.isLocalProvider && ctx.emailEnabled && ctx.allowEmailChange,
+    Component: ChangeEmail,
+  },
   // Account · Security
   {
     id: 'twoFactor',
     tab: ACCOUNT,
     section: 'security',
     labelKey: 'com_ui_settings_label_2fa',
-    show: (ctx) => ctx.isLocalProvider,
+    show: (ctx) => ctx.isTwoFactorPolicyProvider,
     Component: EnableTwoFactorItem,
   },
   {
@@ -739,8 +807,17 @@ export const registry: SettingEntry[] = [
     tab: ACCOUNT,
     section: 'security',
     labelKey: 'com_ui_settings_label_backup_codes',
-    show: (ctx) => ctx.isLocalProvider && ctx.twoFactorEnabled,
+    show: (ctx) => ctx.isTwoFactorPolicyProvider && ctx.twoFactorEnabled,
     Component: BackupCodesItem,
+  },
+  {
+    id: 'passkeys',
+    tab: ACCOUNT,
+    section: 'security',
+    labelKey: 'com_ui_passkeys',
+    keywords: ['passkey', 'webauthn', 'fido', 'security key', 'passwordless'],
+    show: (ctx) => ctx.passkeyLoginEnabled,
+    Component: Passkeys,
   },
   // Account · Billing
   {

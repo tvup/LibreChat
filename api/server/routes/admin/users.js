@@ -49,6 +49,7 @@ const upstreamHandlers = createAdminUsersHandlers({
   invalidateCodeEnvironmentConfigCache,
   deleteConfig: db.deleteConfig,
   deleteAclEntries: db.deleteAclEntries,
+  deletePasskeysByUser: db.deletePasskeysByUser,
 });
 
 const SAFE_USER_FIELDS =
@@ -74,14 +75,14 @@ router.get('/export/csv', async (req, res) => {
       const provider = user.provider || '';
       const emailVerified = user.emailVerified ? 'Yes' : 'No';
       const twoFA = user.twoFactorEnabled ? 'Yes' : 'No';
-      const created = user.createdAt
-        ? new Date(user.createdAt).toISOString().split('T')[0]
-        : '';
-      res.write(`"${name}","${email}","${role}","${provider}","${emailVerified}","${twoFA}","${created}"\n`);
+      const created = user.createdAt ? new Date(user.createdAt).toISOString().split('T')[0] : '';
+      res.write(
+        `"${name}","${email}","${role}","${provider}","${emailVerified}","${twoFA}","${created}"\n`,
+      );
     }
 
     res.end();
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error exporting users' });
   }
 });
@@ -112,7 +113,7 @@ router.post('/bulk/ban', async (req, res) => {
     }
 
     res.status(200).json({ message: `${userIds.length} users banned successfully` });
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error banning users' });
   }
 });
@@ -128,7 +129,7 @@ router.post('/bulk/delete', async (req, res) => {
     const result = await User.deleteMany({ _id: { $in: userIds } });
 
     res.status(200).json({ message: `${result.deletedCount} users deleted successfully` });
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error deleting users' });
   }
 });
@@ -144,13 +145,10 @@ router.post('/bulk/role', async (req, res) => {
     }
 
     const User = require('mongoose').models.User;
-    const result = await User.updateMany(
-      { _id: { $in: userIds } },
-      { $set: { role } },
-    );
+    const result = await User.updateMany({ _id: { $in: userIds } }, { $set: { role } });
 
     res.status(200).json({ message: `${result.modifiedCount} users updated successfully` });
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error updating user roles' });
   }
 });
@@ -249,7 +247,7 @@ router.get('/:userId', async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
     res.status(200).json(user);
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error fetching user details' });
   }
 });
@@ -261,7 +259,7 @@ router.put('/:userId', async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
     res.status(200).json(updated);
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error updating user' });
   }
 });
@@ -296,7 +294,7 @@ router.post('/:userId/ban', async (req, res) => {
     });
 
     res.status(200).json({ message: 'User banned successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error banning user' });
   }
 });
@@ -308,7 +306,7 @@ router.post('/:userId/unban', async (req, res) => {
     );
     await banLogs.delete(req.params.userId);
     res.status(200).json({ message: 'User unbanned successfully' });
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error unbanning user' });
   }
 });
@@ -340,7 +338,7 @@ router.post('/:userId/impersonate', async (req, res) => {
     });
 
     res.status(200).json({ token });
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error impersonating user' });
   }
 });
@@ -353,7 +351,7 @@ router.post('/:userId/balance', async (req, res) => {
     }
     const result = await adminUserService.setBalance(req.params.userId, { amount, mode });
     res.status(200).json(result);
-  } catch (error) {
+  } catch {
     res.status(500).json({ message: 'Error updating balance' });
   }
 });

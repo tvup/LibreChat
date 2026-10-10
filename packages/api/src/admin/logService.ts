@@ -2,29 +2,37 @@ import { ViolationTypes } from 'librechat-data-provider';
 
 import type { AdminViolationSummary, AdminSystemInfo } from 'librechat-data-provider';
 
-export async function getViolationLogs(): Promise<AdminViolationSummary[]> {
+/** Shape of the keyv-backed store `~/cache/getLogStores` returns in the Express app. */
+export interface LogStoreLike {
+  size?: () => Promise<number> | number;
+  opts?: { store?: { size?: number }; namespace?: string };
+}
+export type GetLogStores = (type: string) => LogStoreLike | undefined;
+
+/**
+ * `getLogStores` lives in the Express app's cache layer, not in this package, so the caller
+ * injects it; omitting it (no caller currently does) reports every violation type as zero.
+ */
+export async function getViolationLogs(
+  getLogStores?: GetLogStores,
+): Promise<AdminViolationSummary[]> {
   const results: AdminViolationSummary[] = [];
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const getLogStores = require('~/cache/getLogStores');
-
-    for (const violationType of Object.values(ViolationTypes)) {
-      try {
-        const store = getLogStores(violationType);
-        let count = 0;
-        if (store && typeof store.opts?.store?.size === 'number') {
-          count = store.opts.store.size;
-        } else if (store && typeof store.size === 'function') {
-          count = (await store.size()) as number;
-        }
-        results.push({ type: violationType, count });
-      } catch {
-        results.push({ type: violationType, count: 0 });
-      }
+  for (const violationType of Object.values(ViolationTypes)) {
+    if (!getLogStores) {
+      results.push({ type: violationType, count: 0 });
+      continue;
     }
-  } catch {
-    for (const violationType of Object.values(ViolationTypes)) {
+    try {
+      const store = getLogStores(violationType);
+      let count = 0;
+      if (store && typeof store.opts?.store?.size === 'number') {
+        count = store.opts.store.size;
+      } else if (store && typeof store.size === 'function') {
+        count = (await store.size()) as number;
+      }
+      results.push({ type: violationType, count });
+    } catch {
       results.push({ type: violationType, count: 0 });
     }
   }

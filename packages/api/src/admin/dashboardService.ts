@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { ViolationTypes } from 'librechat-data-provider';
 
 import type { AdminDashboardStats, AdminDashboardRecentUser } from 'librechat-data-provider';
+import type { GetLogStores } from './logService';
 
 /**
  * Counts unique users per auth provider, attributing each user to every
@@ -87,7 +88,11 @@ async function aggregateAuthProviders(
   );
 }
 
-export async function getDashboardStats(): Promise<AdminDashboardStats> {
+/**
+ * `getLogStores` lives in the Express app's cache layer, not in this package, so the caller
+ * injects it; omitting it leaves `totalBannedUsers` at zero.
+ */
+export async function getDashboardStats(getLogStores?: GetLogStores): Promise<AdminDashboardStats> {
   const User = mongoose.models.User;
   const Conversation = mongoose.models.Conversation;
   const Message = mongoose.models.Message;
@@ -108,7 +113,7 @@ export async function getDashboardStats(): Promise<AdminDashboardStats> {
     User.countDocuments(),
     User.countDocuments({ createdAt: { $gte: sevenDaysAgo } }),
     User.countDocuments({ createdAt: { $gte: thirtyDaysAgo } }),
-    Conversation.estimatedDocumentCount(),
+    Conversation.countDocuments(),
     Conversation.countDocuments({ updatedAt: { $gte: sevenDaysAgo } }),
     User.find()
       .select('_id name email createdAt')
@@ -135,12 +140,8 @@ export async function getDashboardStats(): Promise<AdminDashboardStats> {
     ]) as Promise<Array<{ _id: string; count: number }>>,
   ]);
 
-  const lastActiveMap = new Map(
-    lastActiveResults.map((r) => [String(r._id), r.lastActive]),
-  );
-  const messageCountMap = new Map(
-    messageCountResults.map((r) => [String(r._id), r.count]),
-  );
+  const lastActiveMap = new Map(lastActiveResults.map((r) => [String(r._id), r.lastActive]));
+  const messageCountMap = new Map(messageCountResults.map((r) => [String(r._id), r.count]));
 
   const recentRegistrations: AdminDashboardRecentUser[] = rawRecentUsers.map((u) => ({
     _id: String(u._id),
@@ -152,15 +153,15 @@ export async function getDashboardStats(): Promise<AdminDashboardStats> {
   }));
 
   let totalBannedUsers = 0;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const getLogStores = require('~/cache/getLogStores');
-    const banLogs = getLogStores(ViolationTypes.BAN);
-    if (banLogs && typeof banLogs.size === 'function') {
-      totalBannedUsers = await banLogs.size();
+  if (getLogStores) {
+    try {
+      const banLogs = getLogStores(ViolationTypes.BAN);
+      if (banLogs && typeof banLogs.size === 'function') {
+        totalBannedUsers = await banLogs.size();
+      }
+    } catch {
+      totalBannedUsers = 0;
     }
-  } catch {
-    totalBannedUsers = 0;
   }
 
   return {

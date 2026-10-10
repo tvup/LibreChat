@@ -58,11 +58,11 @@ export const Banner = ({ onHeightChange }: { onHeightChange?: (height: number) =
   return (
     <div
       ref={bannerRef}
-      className="sticky top-0 z-20 flex items-center bg-yellow-100 px-2 py-1 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 md:relative"
+      className="bg-presentation text-text-primary sticky top-0 z-20 flex items-center px-2 py-1 md:relative"
     >
       <div
         className={cn(
-          'w-full truncate text-center text-base [&_a]:text-link [&_a]:underline',
+          '[&_a]:text-link w-full truncate text-center text-base [&_a]:underline',
           !banner.persistable && 'px-4',
         )}
         dangerouslySetInnerHTML={{ __html: sanitizedMessage }}
@@ -75,7 +75,7 @@ export const Banner = ({ onHeightChange }: { onHeightChange?: (height: number) =
           className="size-8"
           onClick={onClick}
         >
-          <XIcon className="mx-auto h-4 w-4 text-yellow-800 dark:text-yellow-200" aria-hidden="true" />
+          <XIcon className="text-text-primary mx-auto h-4 w-4" aria-hidden="true" />
         </Button>
       )}
     </div>
