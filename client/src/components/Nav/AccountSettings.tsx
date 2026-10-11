@@ -1,7 +1,6 @@
 import { useState, memo, useRef } from 'react';
 import { useSetAtom } from 'jotai';
 import { useSetRecoilState } from 'recoil';
-import { useNavigate } from 'react-router-dom';
 import * as Menu from '@ariakit/react/menu';
 import { GearIcon, DropdownMenuSeparator, Avatar } from '@librechat/client';
 import {
@@ -11,7 +10,6 @@ import {
   Files,
   Keyboard,
   LifeBuoy,
-  ListChecks,
   LogOut,
   Scale,
   ShieldCheck,
@@ -102,7 +100,6 @@ const ACCESS_ADMIN = 'access:admin';
 
 function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
   const localize = useLocalize();
-  const navigate = useNavigate();
   const { user, logout } = useAuthContext();
   const canAccessAdmin = useHasCapability(ACCESS_ADMIN);
   const { data: startupConfig } = useGetStartupConfig();
@@ -184,15 +181,6 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           <GearIcon className="icon-md" aria-hidden="true" />
           {localize('com_nav_settings')}
         </Menu.MenuItem>
-        {canAccessAdmin && (
-          <Menu.MenuItem
-            onClick={() => navigate('/admin/openai-models')}
-            className="select-item text-sm"
-          >
-            <ListChecks className="icon-md" aria-hidden="true" />
-            OpenAI-modeladministration
-          </Menu.MenuItem>
-        )}
         {canAccessAdmin && startupConfig?.adminPanelURL && (
           <Menu.MenuItem
             onClick={() => {
