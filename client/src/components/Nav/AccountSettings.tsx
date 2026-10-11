@@ -1,6 +1,7 @@
 import { useState, memo, useRef } from 'react';
 import { useSetAtom } from 'jotai';
 import { useSetRecoilState } from 'recoil';
+import { useNavigate } from 'react-router-dom';
 import * as Menu from '@ariakit/react/menu';
 import { GearIcon, DropdownMenuSeparator, Avatar } from '@librechat/client';
 import {
@@ -17,7 +18,6 @@ import {
   ShieldEllipsis,
 } from 'lucide-react';
 import { ArchivedChatsModal } from '~/components/Nav/SettingsTabs/General/ArchivedChatsModal';
-import AdminOpenAIModelManager from '~/components/Nav/AdminOpenAIModelManager';
 import { filesDialogTriggerAtom, showFilesDialogAtom } from '~/store/filesDialog';
 import { useGetStartupConfig, useHasCapability } from '~/data-provider';
 import HighlightedName from '~/components/ui/HighlightedName';
@@ -102,6 +102,7 @@ const ACCESS_ADMIN = 'access:admin';
 
 function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
   const localize = useLocalize();
+  const navigate = useNavigate();
   const { user, logout } = useAuthContext();
   const canAccessAdmin = useHasCapability(ACCESS_ADMIN);
   const { data: startupConfig } = useGetStartupConfig();
@@ -110,7 +111,6 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
   const setFilesDialogTrigger = useSetAtom(filesDialogTriggerAtom);
   const setShowShortcutsDialog = useSetRecoilState(store.showShortcutsDialog);
   const [showArchived, setShowArchived] = useState(false);
-  const [showOpenAIModelManager, setShowOpenAIModelManager] = useState(false);
   const accountSettingsButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
@@ -186,11 +186,11 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
         </Menu.MenuItem>
         {canAccessAdmin && (
           <Menu.MenuItem
-            onClick={() => setShowOpenAIModelManager(true)}
+            onClick={() => navigate('/admin/openai-models')}
             className="select-item text-sm"
           >
             <ListChecks className="icon-md" aria-hidden="true" />
-            Administrér OpenAI-modeller
+            OpenAI-modeladministration
           </Menu.MenuItem>
         )}
         {canAccessAdmin && startupConfig?.adminPanelURL && (
@@ -215,12 +215,6 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           open={showArchived}
           onOpenChange={setShowArchived}
           triggerRef={accountSettingsButtonRef}
-        />
-      )}
-      {canAccessAdmin && (
-        <AdminOpenAIModelManager
-          open={showOpenAIModelManager}
-          onOpenChange={setShowOpenAIModelManager}
         />
       )}
     </Menu.MenuProvider>
