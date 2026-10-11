@@ -10,12 +10,14 @@ import {
   Files,
   Keyboard,
   LifeBuoy,
+  ListChecks,
   LogOut,
   Scale,
   ShieldCheck,
   ShieldEllipsis,
 } from 'lucide-react';
 import { ArchivedChatsModal } from '~/components/Nav/SettingsTabs/General/ArchivedChatsModal';
+import AdminOpenAIModelManager from '~/components/Nav/AdminOpenAIModelManager';
 import { filesDialogTriggerAtom, showFilesDialogAtom } from '~/store/filesDialog';
 import { useGetStartupConfig, useHasCapability } from '~/data-provider';
 import HighlightedName from '~/components/ui/HighlightedName';
@@ -108,6 +110,7 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
   const setFilesDialogTrigger = useSetAtom(filesDialogTriggerAtom);
   const setShowShortcutsDialog = useSetRecoilState(store.showShortcutsDialog);
   const [showArchived, setShowArchived] = useState(false);
+  const [showOpenAIModelManager, setShowOpenAIModelManager] = useState(false);
   const accountSettingsButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
@@ -164,9 +167,6 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
 
         <Menu.MenuItem
           onClick={() => {
-            /** The menu is gone by the time the dialog captures focus, so the
-             *  account button has to be named here or focus returns to the
-             *  document body when the dialog closes. */
             setFilesDialogTrigger(accountSettingsButtonRef);
             setShowFiles(true);
           }}
@@ -184,6 +184,15 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           <GearIcon className="icon-md" aria-hidden="true" />
           {localize('com_nav_settings')}
         </Menu.MenuItem>
+        {canAccessAdmin && (
+          <Menu.MenuItem
+            onClick={() => setShowOpenAIModelManager(true)}
+            className="select-item text-sm"
+          >
+            <ListChecks className="icon-md" aria-hidden="true" />
+            Administrér OpenAI-modeller
+          </Menu.MenuItem>
+        )}
         {canAccessAdmin && startupConfig?.adminPanelURL && (
           <Menu.MenuItem
             onClick={() => {
@@ -206,6 +215,12 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           open={showArchived}
           onOpenChange={setShowArchived}
           triggerRef={accountSettingsButtonRef}
+        />
+      )}
+      {canAccessAdmin && (
+        <AdminOpenAIModelManager
+          open={showOpenAIModelManager}
+          onOpenChange={setShowOpenAIModelManager}
         />
       )}
     </Menu.MenuProvider>
