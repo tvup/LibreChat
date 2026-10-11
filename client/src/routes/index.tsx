@@ -47,6 +47,11 @@ const loadInsightsView = () =>
     Component: m.default,
   }));
 
+const loadOpenAIModelsPage = () =>
+  importWithRecovery(() => import('~/components/Admin/OpenAIModelsPage')).then((m) => ({
+    Component: m.default,
+  }));
+
 const loadProjectsView = () =>
   importWithRecovery(() => import('~/components/Projects')).then((m) => ({
     Component: m.ProjectsView,
@@ -146,6 +151,10 @@ export const router = createBrowserRouter(
                 {
                   path: 'search',
                   element: <Search />,
+                },
+                {
+                  path: 'admin/openai-models',
+                  lazy: loadOpenAIModelsPage,
                 },
                 {
                   path: 'prompts',
