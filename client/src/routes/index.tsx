@@ -14,6 +14,7 @@ import { importWithRecovery } from '~/lib/assets/lazy';
 import RouteErrorBoundary from './RouteErrorBoundary';
 import StartupLayout from './Layouts/Startup';
 import MarketplaceRoute from './Marketplace';
+import { codeSetupRoute } from './CodeSetup';
 import LoginLayout from './Layouts/Login';
 import dashboardRoutes from './Dashboard';
 import WithRum from '~/lib/rum/WithRum';
@@ -134,6 +135,7 @@ export const router = createBrowserRouter(
               ],
             },
             dashboardRoutes,
+            codeSetupRoute,
             {
               path: '/',
               element: <Root />,

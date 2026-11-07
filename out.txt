@@ -1,0 +1,50 @@
+tvup@dell-p-tower-5810:~/Projects/LibreChat (tvup/master)$ ./scripts/upgrade.sh 
+
+==> Fetching upstream and origin
+
+==> Merging upstream/main into tvup/master
+Already on 'tvup/master'
+Your branch is up to date with 'origin/tvup/master'.
+Auto-merging api/app/clients/tools/index.js
+Auto-merging api/app/clients/tools/manifest.json
+Auto-merging api/app/clients/tools/structured/StableDiffusion.js
+Auto-merging api/app/clients/tools/util/handleTools.js
+Auto-merging api/cache/logViolation.js
+Auto-merging api/server/controllers/agents/callbacks.js
+Auto-merging api/server/experimental.js
+Auto-merging api/server/index.js
+Auto-merging api/server/routes/admin/users.js
+CONFLICT (content): Merge conflict in api/server/routes/admin/users.js
+Auto-merging api/server/routes/config.js
+CONFLICT (content): Merge conflict in api/server/routes/config.js
+Auto-merging api/server/routes/user.js
+Auto-merging api/server/services/Files/Audio/TTSService.js
+CONFLICT (content): Merge conflict in api/server/services/Files/Audio/TTSService.js
+Auto-merging api/strategies/socialLogin.js
+CONFLICT (content): Merge conflict in api/strategies/socialLogin.js
+Auto-merging client/package.json
+Auto-merging client/src/components/Chat/Input/StreamAudio.tsx
+Auto-merging client/src/components/Chat/Messages/MessagesView.tsx
+CONFLICT (content): Merge conflict in client/src/components/Chat/Messages/MessagesView.tsx
+Auto-merging client/src/components/Nav/AccountSettings.tsx
+CONFLICT (content): Merge conflict in client/src/components/Nav/AccountSettings.tsx
+Auto-merging client/src/components/Nav/Settings/registry.tsx
+Auto-merging client/src/components/Nav/SettingsTabs/Speech/STT/LanguageSTTDropdown.tsx
+Auto-merging client/src/locales/en/translation.json
+Auto-merging client/src/routes/index.tsx
+Auto-merging eslint-suppressions.json
+CONFLICT (content): Merge conflict in eslint-suppressions.json
+Auto-merging package-lock.json
+Auto-merging package.json
+Auto-merging packages/api/src/admin/index.ts
+Auto-merging packages/api/src/index.ts
+Auto-merging packages/api/src/mcp/MCPManager.ts
+Auto-merging packages/api/src/mcp/registry/MCPServersRegistry.ts
+Auto-merging packages/api/src/tools/registry/definitions.ts
+Auto-merging packages/data-provider/src/api-endpoints.ts
+Auto-merging packages/data-provider/src/data-service.ts
+Auto-merging packages/data-provider/src/index.ts
+Auto-merging packages/data-provider/src/types.ts
+Automatic merge failed; fix conflicts and then commit the result.
+
+!! Merge conflict. Resolve, 'git commit', then re-run this script.

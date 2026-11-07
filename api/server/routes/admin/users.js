@@ -30,13 +30,19 @@ const {
 } = require('~/server/services/Schedules');
 const db = require('~/models');
 const {
+const {
   parseBanDuration,
   isValidUserId,
   getActiveUserBans,
   banUser,
   unbanUser,
 } = require('./banStatus');
-const { getAppConfig, invalidateCodeEnvironmentConfigCache } = require('~/server/services/Config');
+const {
+  getAppConfig,
+  invalidateConfigCaches,
+  invalidateCodeEnvironmentConfigCache,
+} = require('~/server/services/Config');
+>>>>>>> upstream/main
 
 const router = express.Router();
 
@@ -85,6 +91,7 @@ const upstreamHandlers = createAdminUsersHandlers({
   deleteUserCodeEnvironments: db.deleteUserCodeEnvironments,
   invalidateCodeEnvironmentConfigCache,
   deleteConfig: db.deleteConfig,
+  invalidateConfigCaches,
   deleteAclEntries: db.deleteAclEntries,
   deletePasskeysByUser: db.deletePasskeysByUser,
   resolveErasure,
