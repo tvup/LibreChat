@@ -244,8 +244,6 @@ router.get('/', async function (req, res) {
         turnstile: baseConfig?.turnstileConfig,
         rum: getRumConfig(baseConfig?.config?.telemetry),
         clientLimits: getClientLimits(baseConfig?.config?.clientLimits),
-        ...(baseConfig?.config?.rum ? { rum: baseConfig.config.rum } : {}),
-        ...(baseConfig?.config?.cloudFront ? { cloudFront: baseConfig.config.cloudFront } : {}),
       };
 
       const interfaceConfig = baseConfig?.interfaceConfig;
@@ -278,6 +276,7 @@ router.get('/', async function (req, res) {
     const endpointsDropParamsMap = getEndpointsDropParamsMap(appConfig?.endpoints);
 
     const balanceConfig = getBalanceConfig(appConfig);
+    const cloudFront = buildCloudFrontStartupConfig();
     const langfuseFanoutEnabled = isLangfuseFanoutEnabled();
     const langfuseSettingsAvailable = isLangfuseSettingsAvailable();
     let canManageLangfuse = false;
