@@ -408,7 +408,7 @@ describe('checkBan middleware', () => {
     it('caches ban with correct TTL and returns 403', async () => {
       const expiresAt = Date.now() + 3600000;
       const banRecord = { expiresAt, type: 'ban', violation_count: 3 };
-      mockBanLogsGet.mockResolvedValueOnce(banRecord);
+      mockBanLogsGet.mockResolvedValueOnce(banRecord).mockResolvedValueOnce(banRecord);
       const next = jest.fn();
       const req = createReq();
       const res = createRes();
@@ -428,6 +428,20 @@ describe('checkBan middleware', () => {
 
       expect(userCacheCall[0]).toBe('user123');
       expect(userCacheCall[1]).toBe(banRecord);
+    });
+
+    it('does not cache the request IP when only the user is banned', async () => {
+      const expiresAt = Date.now() + 3600000;
+      const userBan = { expiresAt, type: 'admin_ban' };
+      mockBanLogsGet.mockResolvedValueOnce(undefined).mockResolvedValueOnce(userBan);
+      const res = createRes();
+
+      await checkBan(createReq(), res, jest.fn());
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(mockBanCacheSet).toHaveBeenCalledTimes(1);
+      expect(mockBanCacheSet.mock.calls[0][0]).toBe('user123');
+      expect(mockBanCacheSet.mock.calls[0][1]).toBe(userBan);
     });
 
     it('caches only IP when no userId is present', async () => {
@@ -580,7 +594,9 @@ describe('checkBan middleware', () => {
 
     it('uses cache-prefixed keys for banCache.set on active ban', async () => {
       const expiresAt = Date.now() + 3600000;
-      mockBanLogsGet.mockResolvedValueOnce({ expiresAt, type: 'ban' });
+      mockBanLogsGet
+        .mockResolvedValueOnce({ expiresAt, type: 'ban' })
+        .mockResolvedValueOnce({ expiresAt, type: 'ban' });
 
       await checkBan(createReq(), createRes(), jest.fn());
 

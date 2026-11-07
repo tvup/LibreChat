@@ -152,12 +152,14 @@ const checkBan = async (req, res, next = () => {}) => {
       return next();
     }
 
+    // Cache kun den nøgle, der faktisk er udelukket. Ellers smitter et bruger-ban
+    // af på den IP, brugeren kom fra (fx en delt NAT- eller proxy-IP).
     const cacheWrites = [];
-    if (ipKey) {
-      cacheWrites.push(banCache.set(ipKey, banData, timeLeft));
+    if (ipKey && ipBan) {
+      cacheWrites.push(banCache.set(ipKey, ipBan, timeLeft));
     }
-    if (userKey) {
-      cacheWrites.push(banCache.set(userKey, banData, timeLeft));
+    if (userKey && userBan) {
+      cacheWrites.push(banCache.set(userKey, userBan, timeLeft));
     }
     await Promise.all(cacheWrites).catch((err) =>
       logger.warn('[checkBan] Failed to write ban cache:', err),

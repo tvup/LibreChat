@@ -41,6 +41,7 @@ services:
       - ./packages/data-provider/dist:/app/packages/data-provider/dist
       - ./packages/data-schemas/dist:/app/packages/data-schemas/dist
       - ./api/server/routes/admin:/app/api/server/routes/admin
+      - ./api/server/middleware/checkBan.js:/app/api/server/middleware/checkBan.js
       - ./api/server/routes/config.js:/app/api/server/routes/config.js
       - ./api/server/routes/index.js:/app/api/server/routes/index.js
       - ./api/server/index.js:/app/api/server/index.js
@@ -57,7 +58,7 @@ services:
       - ./api/server/services/Files/Audio/TTSService.js:/app/api/server/services/Files/Audio/TTSService.js
       - /home/tvup/Projects/atlascloud-mcp:/app/mcp/atlascloud:ro
       - ./skill:/app/skill
-      - librechat-data:/app/data
+      - ./data:/app/data
   mongodb:
     container_name: chat-mongodb
     image: mongo:8.0.20
@@ -102,3 +103,9 @@ services:
 volumes:
   pgdata2:
   librechat-data:
+
+
+networks:
+  default:
+    external: true
+    name: ai-network

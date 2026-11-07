@@ -29,6 +29,13 @@ const {
   restoreUserSchedulesFromDeletion,
 } = require('~/server/services/Schedules');
 const db = require('~/models');
+const {
+  parseBanDuration,
+  isValidUserId,
+  getActiveUserBans,
+  banUser,
+  unbanUser,
+} = require('./banStatus');
 const { getAppConfig, invalidateCodeEnvironmentConfigCache } = require('~/server/services/Config');
 
 const router = express.Router();
@@ -123,29 +130,43 @@ router.get('/export/csv', async (req, res) => {
   }
 });
 
+/**
+ * Aktive ban: GET /bans?ids=a,b,c → { bans: { [userId]: expiresAt (ISO) } }.
+ * Uden `ids` returneres alle aktive bruger-ban.
+ */
+router.get('/bans', requireReadUsers, async (req, res) => {
+  try {
+    const ids =
+      typeof req.query.ids === 'string' && req.query.ids.length > 0
+        ? req.query.ids.split(',')
+        : undefined;
+    const active = await getActiveUserBans(ids);
+    const bans = {};
+    for (const [userId, expiresAt] of active) {
+      bans[userId] = new Date(expiresAt).toISOString();
+    }
+    res.status(200).json({ bans });
+  } catch {
+    res.status(500).json({ message: 'Error fetching bans' });
+  }
+});
+
 router.post('/bulk/ban', async (req, res) => {
   try {
-    const { userIds, duration } = req.body;
+    const { userIds } = req.body;
     if (!Array.isArray(userIds) || userIds.length === 0) {
       return res.status(400).json({ message: 'userIds array is required' });
     }
-    if (!duration || duration <= 0) {
+    if (!userIds.every(isValidUserId)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+    const durationMs = parseBanDuration(req.body);
+    if (!durationMs) {
       return res.status(400).json({ message: 'Invalid ban duration' });
     }
 
-    const banLogs = require('~/cache/getLogStores')(
-      require('librechat-data-provider').ViolationTypes.BAN,
-    );
-    const durationMs = duration * 60000;
-    const expiresAt = Date.now() + durationMs;
-
     for (const userId of userIds) {
-      await banLogs.set(userId, {
-        type: 'admin_ban',
-        violation_count: 0,
-        duration: durationMs,
-        expiresAt,
-      });
+      await banUser(userId, durationMs);
     }
 
     res.status(200).json({ message: `${userIds.length} users banned successfully` });
@@ -288,6 +309,86 @@ router.get('/:userId', async (req, res) => {
   }
 });
 
+/**
+ * Aktivitetsoverblik til admin-GUI'ens "Aktivitet"-fane.
+ * Login-tidspunkt aflæses af sessionens ObjectId (sessions har ingen createdAt).
+ */
+router.get('/:userId/activity', requireReadUsers, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!isValidUserId(userId)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+    const { Conversation, Message, Session, Transaction } = mongoose.models;
+    const userOid = new mongoose.Types.ObjectId(userId);
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const now = new Date();
+
+    const [
+      lastMessage,
+      lastConversation,
+      conversationsTotal,
+      conversations30d,
+      messagesTotal,
+      userMessages30d,
+      sessions,
+      tokenUsage,
+      bans,
+    ] = await Promise.all([
+      Message.findOne({ user: userId }).sort({ createdAt: -1 }).select('createdAt').lean(),
+      Conversation.findOne({ user: userId })
+        .sort({ updatedAt: -1 })
+        .select('updatedAt title')
+        .lean(),
+      Conversation.countDocuments({ user: userId }),
+      Conversation.countDocuments({ user: userId, updatedAt: { $gte: since } }),
+      Message.countDocuments({ user: userId }),
+      Message.countDocuments({ user: userId, isCreatedByUser: true, createdAt: { $gte: since } }),
+      Session.find({ user: userOid, expiration: { $gt: now } })
+        .sort({ _id: -1 })
+        .select('_id expiration')
+        .lean(),
+      Transaction.aggregate([
+        { $match: { user: userOid, createdAt: { $gte: since } } },
+        {
+          $group: {
+            _id: '$model',
+            tokens: { $sum: { $abs: { $ifNull: ['$rawAmount', 0] } } },
+            requests: { $sum: { $cond: [{ $eq: ['$tokenType', 'prompt'] }, 1, 0] } },
+          },
+        },
+        { $sort: { tokens: -1 } },
+      ]),
+      getActiveUserBans([userId]),
+    ]);
+
+    const bannedUntil = bans.get(userId);
+    res.status(200).json({
+      lastMessageAt: lastMessage?.createdAt ?? null,
+      lastConversation: lastConversation
+        ? { title: lastConversation.title ?? null, updatedAt: lastConversation.updatedAt }
+        : null,
+      conversations: { total: conversationsTotal, last30Days: conversations30d },
+      messages: { total: messagesTotal, sentLast30Days: userMessages30d },
+      sessions: sessions.map((s) => ({
+        startedAt: s._id.getTimestamp(),
+        expiresAt: s.expiration,
+      })),
+      tokensLast30Days: {
+        total: tokenUsage.reduce((sum, m) => sum + m.tokens, 0),
+        byModel: tokenUsage.map((m) => ({
+          model: m._id ?? 'unknown',
+          tokens: m.tokens,
+          requests: m.requests,
+        })),
+      },
+      bannedUntil: bannedUntil ? new Date(bannedUntil).toISOString() : null,
+    });
+  } catch {
+    res.status(500).json({ message: 'Error fetching user activity' });
+  }
+});
+
 router.put('/:userId', async (req, res) => {
   try {
     const updated = await adminUserService.adminUpdateUser(req.params.userId, req.body);
@@ -311,25 +412,18 @@ router.delete('/:userId', async (req, res) => {
 
 router.post('/:userId/ban', async (req, res) => {
   try {
-    const { duration } = req.body;
-    if (!duration || duration <= 0) {
+    if (!isValidUserId(req.params.userId)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+    const durationMs = parseBanDuration(req.body);
+    if (!durationMs) {
       return res.status(400).json({ message: 'Invalid ban duration' });
     }
 
-    const banLogs = require('~/cache/getLogStores')(
-      require('librechat-data-provider').ViolationTypes.BAN,
-    );
-    const durationMs = duration * 60000;
-    const expiresAt = Date.now() + durationMs;
-
-    await banLogs.set(req.params.userId, {
-      type: 'admin_ban',
-      violation_count: 0,
-      duration: durationMs,
-      expiresAt,
-    });
-
-    res.status(200).json({ message: 'User banned successfully' });
+    const expiresAt = await banUser(req.params.userId, durationMs);
+    res
+      .status(200)
+      .json({ message: 'User banned successfully', expiresAt: new Date(expiresAt).toISOString() });
   } catch {
     res.status(500).json({ message: 'Error banning user' });
   }
@@ -337,10 +431,10 @@ router.post('/:userId/ban', async (req, res) => {
 
 router.post('/:userId/unban', async (req, res) => {
   try {
-    const banLogs = require('~/cache/getLogStores')(
-      require('librechat-data-provider').ViolationTypes.BAN,
-    );
-    await banLogs.delete(req.params.userId);
+    if (!isValidUserId(req.params.userId)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+    await unbanUser(req.params.userId);
     res.status(200).json({ message: 'User unbanned successfully' });
   } catch {
     res.status(500).json({ message: 'Error unbanning user' });
