@@ -2,12 +2,10 @@ const { logger } = require('@librechat/data-schemas');
 const { ErrorTypes } = require('librechat-data-provider');
 const {
   isEnabled,
-  findSocialUser,
   isEmailDomainAllowed,
   resolvePreAuthAppConfig,
   resolveAppConfigForUser,
 } = require('@librechat/api');
->>>>>>> upstream/main
 const { createSocialUser, handleExistingUser } = require('./process');
 const { getAppConfig } = require('~/server/services/Config');
 const { findUser, updateUser } = require('~/models');

@@ -30,7 +30,6 @@ const {
 } = require('~/server/services/Schedules');
 const db = require('~/models');
 const {
-const {
   parseBanDuration,
   isValidUserId,
   getActiveUserBans,
@@ -42,7 +41,6 @@ const {
   invalidateConfigCaches,
   invalidateCodeEnvironmentConfigCache,
 } = require('~/server/services/Config');
->>>>>>> upstream/main
 
 const router = express.Router();
 
