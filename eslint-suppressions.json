@@ -426,26 +426,6 @@
       "count": 1
     }
   },
-  "client/src/components/Chat/Messages/SiblingSwitch.tsx": {
-    "shadcn/no-restyle": {
-      "count": 2
-    }
-  },
-  "client/src/components/Chat/Messages/styles.ts": {
-    "shadcn/no-arbitrary-values": {
-      "count": 1
-    }
-  },
-  "client/src/components/Chat/Messages/ui/HeaderLabel.tsx": {
-    "shadcn/no-arbitrary-values": {
-      "count": 5
-    }
-  },
-  "client/src/components/Chat/Messages/ui/MessageRow.tsx": {
-    "shadcn/no-arbitrary-values": {
-      "count": 1
-    }
-  },
   "client/src/components/Chat/ProjectLandingChip.tsx": {
     "shadcn/no-restyle": {
       "count": 14

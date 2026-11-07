@@ -2,7 +2,7 @@ import { useState, memo, useRef } from 'react';
 import { useSetAtom } from 'jotai';
 import { useSetRecoilState } from 'recoil';
 import * as Menu from '@ariakit/react/menu';
-import { GearIcon, DropdownMenuSeparator, Avatar } from '@librechat/client';
+import { GearIcon, Avatar } from '@librechat/client';
 import {
   Archive,
   ChevronRight,
@@ -18,10 +18,11 @@ import {
 import { ArchivedChatsModal } from '~/components/Nav/SettingsTabs/General/ArchivedChatsModal';
 import { filesDialogTriggerAtom, showFilesDialogAtom } from '~/store/filesDialog';
 import { useGetStartupConfig, useHasCapability } from '~/data-provider';
+import useDirection, { inlineSide } from '~/hooks/Nav/useDirection';
 import HighlightedName from '~/components/ui/HighlightedName';
 import { useAuthContext } from '~/hooks/AuthContext';
+import { openInNewTab, policyUrls } from '~/utils';
 import { settingsOpenAtom } from './Settings';
-import { openInNewTab } from '~/utils';
 import { useLocalize } from '~/hooks';
 import store from '~/store';
 
@@ -41,9 +42,10 @@ function HelpSubmenu({
   const hasTos = !!termsOfServiceURL;
   const hasPrivacy = !!privacyPolicyURL;
   const showLegalDivider = (hasHelpFaq || true) && (hasTos || hasPrivacy);
+  const submenuSide = inlineSide(useDirection(), 'end');
 
   return (
-    <Menu.MenuProvider placement="right-start">
+    <Menu.MenuProvider placement={`${submenuSide}-start`}>
       <Menu.MenuItem
         hideOnClick={false}
         render={
@@ -51,13 +53,13 @@ function HelpSubmenu({
         }
       >
         <CircleHelp className="icon-md" aria-hidden="true" />
-        <span className="flex-1 text-left">{localize('com_nav_help')}</span>
-        <ChevronRight className="text-text-secondary h-4 w-4" aria-hidden="true" />
+        <span className="flex-1 text-start">{localize('com_nav_help')}</span>
+        <ChevronRight className="text-text-secondary h-4 w-4 rtl:-scale-x-100" aria-hidden="true" />
       </Menu.MenuItem>
       <Menu.Menu
         portal
         gutter={12}
-        className="popover-ui popover-from-left z-[126] w-[min(15.25rem,90vw)] rounded-lg"
+        className="popover-ui popover-from-left z-[126] w-[min(15.25rem,90vw)]"
       >
         {hasHelpFaq && (
           <Menu.MenuItem
@@ -72,7 +74,9 @@ function HelpSubmenu({
           <Keyboard className="icon-md" aria-hidden="true" />
           {localize('com_shortcut_keyboard_shortcuts')}
         </Menu.MenuItem>
-        {showLegalDivider && (hasTos || hasPrivacy) && <DropdownMenuSeparator />}
+        {showLegalDivider && (hasTos || hasPrivacy) && (
+          <Menu.MenuSeparator className="bg-surface-hover -mx-1 my-1 h-px border-0" />
+        )}
         {hasTos && (
           <Menu.MenuItem
             onClick={() => openInNewTab(termsOfServiceURL)}
@@ -103,15 +107,19 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
   const { user, logout } = useAuthContext();
   const canAccessAdmin = useHasCapability(ACCESS_ADMIN);
   const { data: startupConfig } = useGetStartupConfig();
+  const adminPanelURL = startupConfig?.adminPanelURL;
+  const { privacyPolicyUrl, termsOfServiceUrl } = policyUrls(startupConfig);
   const setShowSettings = useSetAtom(settingsOpenAtom);
   const setShowFiles = useSetAtom(showFilesDialogAtom);
   const setFilesDialogTrigger = useSetAtom(filesDialogTriggerAtom);
   const setShowShortcutsDialog = useSetRecoilState(store.showShortcutsDialog);
   const [showArchived, setShowArchived] = useState(false);
   const accountSettingsButtonRef = useRef<HTMLButtonElement>(null);
+  /** The collapsed rail opens the menu beside it, toward the content. */
+  const railSide = inlineSide(useDirection(), 'end');
 
   return (
-    <Menu.MenuProvider placement={collapsed ? 'right-end' : undefined}>
+    <Menu.MenuProvider placement={collapsed ? `${railSide}-end` : undefined}>
       <Menu.MenuButton
         ref={accountSettingsButtonRef}
         aria-label={localize('com_nav_account_settings')}
@@ -128,10 +136,7 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           </div>
         </div>
         {!collapsed && (
-          <div
-            className="text-text-primary mt-2 grow overflow-hidden text-left text-ellipsis whitespace-nowrap"
-            style={{ marginTop: '0', marginLeft: '0' }}
-          >
+          <div className="text-text-primary grow overflow-hidden text-start text-ellipsis whitespace-nowrap">
             <HighlightedName
               name={user?.name ?? user?.username ?? localize('com_nav_user')}
               preferredName={user?.preferredName}
@@ -141,20 +146,22 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
       </Menu.MenuButton>
       <Menu.Menu
         portal
-        className="popover-ui z-[125] w-[min(19.0625rem,90vw)] rounded-lg md:w-[min(15.25rem,90vw)]"
+        className="popover-ui z-[125] w-[min(19.0625rem,90vw)] md:w-[min(15.25rem,90vw)]"
         style={{
-          transformOrigin: collapsed ? 'left bottom' : 'bottom',
-          translate: collapsed ? '4px 0' : '0 -4px',
+          transformOrigin: collapsed
+            ? `${railSide === 'right' ? 'left' : 'right'} bottom`
+            : 'bottom',
+          translate: collapsed ? `${railSide === 'right' ? 4 : -4}px 0` : '0 -4px',
         }}
       >
-        <div className="text-text-secondary mr-2 ml-3 py-2 text-sm" role="note">
+        <div className="text-text-secondary ms-3 me-2 py-2 text-sm" role="note">
           {user?.email ?? localize('com_nav_user')}
         </div>
-        <DropdownMenuSeparator />
+        <Menu.MenuSeparator className="bg-surface-hover -mx-1 my-1 h-px border-0" />
         <HelpSubmenu
           helpAndFaqURL={startupConfig?.helpAndFaqURL}
-          termsOfServiceURL={startupConfig?.interface?.termsOfService?.externalUrl}
-          privacyPolicyURL={startupConfig?.interface?.privacyPolicy?.externalUrl}
+          termsOfServiceURL={termsOfServiceUrl}
+          privacyPolicyURL={privacyPolicyUrl}
           onShowShortcuts={() => setShowShortcutsDialog(true)}
         />
         <Menu.MenuItem onClick={() => setShowArchived(true)} className="select-item text-sm">
@@ -164,6 +171,9 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
 
         <Menu.MenuItem
           onClick={() => {
+            /** The menu is gone by the time the dialog captures focus, so the
+             *  account button has to be named here or focus returns to the
+             *  document body when the dialog closes. */
             setFilesDialogTrigger(accountSettingsButtonRef);
             setShowFiles(true);
           }}
@@ -181,10 +191,10 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           <GearIcon className="icon-md" aria-hidden="true" />
           {localize('com_nav_settings')}
         </Menu.MenuItem>
-        {canAccessAdmin && startupConfig?.adminPanelURL && (
+        {canAccessAdmin && adminPanelURL && (
           <Menu.MenuItem
             onClick={() => {
-              window.location.href = startupConfig.adminPanelURL;
+              window.location.href = adminPanelURL;
             }}
             className="select-item text-sm"
           >
@@ -192,7 +202,7 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
             {localize('com_admin_panel')}
           </Menu.MenuItem>
         )}
-        <DropdownMenuSeparator />
+        <Menu.MenuSeparator className="bg-surface-hover -mx-1 my-1 h-px border-0" />
         <Menu.MenuItem onClick={() => logout()} className="select-item text-sm">
           <LogOut className="icon-md" aria-hidden="true" />
           {localize('com_nav_log_out')}
