@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Quote } from 'lucide-react';
-import { mainTextareaId } from '~/common';
+import { createPortal } from 'react-dom';
 import { insertTextAtCursor } from '~/utils/textarea';
+import { mainTextareaId } from '~/common';
 import { useLocalize } from '~/hooks';
 
 /**
@@ -121,7 +122,8 @@ export default function QuoteSelection() {
     return null;
   }
 
-  return (
+  /** Portaled to body so document coordinates hold regardless of positioned ancestors. */
+  return createPortal(
     <button
       ref={buttonRef}
       type="button"
@@ -136,11 +138,12 @@ export default function QuoteSelection() {
         left: position.left,
         zIndex: 50,
       }}
-      className="flex items-center gap-1 rounded-md border border-border-medium bg-surface-primary px-2 py-1 text-xs font-medium text-text-primary shadow-md hover:bg-surface-hover"
+      className="border-border-medium bg-surface-primary text-text-primary hover:bg-surface-hover flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium shadow-md"
       title={localize('com_ui_quote_selection') || 'Quote selection'}
     >
       <Quote className="size-3" />
       {localize('com_ui_quote_selection') || 'Quote'}
-    </button>
+    </button>,
+    document.body,
   );
 }

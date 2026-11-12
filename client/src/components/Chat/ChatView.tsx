@@ -27,6 +27,7 @@ import ConversationStarters from './Input/ConversationStarters';
 import ProjectBadge from '~/components/Projects/ProjectBadge';
 import { OwnerTextProvider } from './Messages/PrivateText';
 import { TargetContext } from '~/Providers/TargetContext';
+import QuoteSelection from './Messages/QuoteSelection';
 import PendingTurn from './Messages/PendingTurn';
 import { FLAT_THREAD } from './Messages/Thread';
 import useTarget from '~/hooks/Chat/target';
@@ -206,6 +207,7 @@ function ChatViewPane({
                               />
                             )}
                           />
+                          <QuoteSelection />
                         </TraceSurface>
                       </Presentation>
                     </ApprovalProvider>

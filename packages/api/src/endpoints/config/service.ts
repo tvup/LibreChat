@@ -29,6 +29,8 @@ export interface ModelsServiceDeps {
   defaultEndpointsConfig: EndpointConfig;
   loadAsyncEndpoints: (config: AppConfig) => Promise<EndpointConfig>;
   loadDefaultEndpointModels?: typeof loadDefaultEndpointModels;
+  /** Narrows every catalog the service returns, e.g. to hide admin-disabled models. */
+  filterModels?: (catalog: TModelsConfig) => Promise<TModelsConfig>;
 }
 
 function hasEntry(catalog: TModelsConfig, key: string): boolean {
@@ -54,7 +56,11 @@ export function createModelsService(deps: ModelsServiceDeps): {
       deps.loadDefaultModels(req),
       deps.loadConfigModels(req),
     ]);
-    return { ...defaults, ...configured };
+    return filterCatalog({ ...defaults, ...configured });
+  }
+
+  function filterCatalog(catalog: TModelsConfig): Promise<TModelsConfig> {
+    return deps.filterModels ? deps.filterModels(catalog) : Promise.resolve(catalog);
   }
 
   async function resolveConfig(req: ServerRequest): Promise<AppConfig> {
@@ -74,9 +80,11 @@ export function createModelsService(deps: ModelsServiceDeps): {
   ): Promise<TModelsConfig> {
     const configured = await deps.loadConfigModels(req, endpoint);
     if (Object.prototype.hasOwnProperty.call(configured, endpoint)) {
-      return { [endpoint]: configured[endpoint] };
+      return filterCatalog({ [endpoint]: configured[endpoint] });
     }
-    return (deps.loadDefaultEndpointModels ?? loadDefaultEndpointModels)(req, config, endpoint);
+    return filterCatalog(
+      await (deps.loadDefaultEndpointModels ?? loadDefaultEndpointModels)(req, config, endpoint),
+    );
   }
 
   /** One load per request and endpoint name, shared while in flight and kept once settled. */
