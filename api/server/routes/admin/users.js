@@ -74,6 +74,7 @@ const upstreamHandlers = createAdminUsersHandlers({
   findUsers: db.findUsers,
   countUsers: db.countUsers,
   beginAgentTriggerUserDeletion: db.beginAgentTriggerUserDeletion,
+  isAgentTriggerUserDeletionOwner: db.isAgentTriggerUserDeletionOwner,
   cancelAgentTriggerUserDeletion: db.cancelAgentTriggerUserDeletion,
   drainAgentTriggerDeliveriesForUser,
   prepareAgentTriggerUserPurge,

@@ -6,7 +6,10 @@ const { Tool } = require('@librechat/agents/langchain/tools');
 const {
   applyAxiosProxyConfig,
   createMinimalRetentionRequest,
+  formatToolError,
   getHttpsProxyAgent,
+  resolveFluxResultRequest,
+  createImageToolArtifact,
 } = require('@librechat/api');
 const { FileContext, ContentTypes } = require('librechat-data-provider');
 
@@ -128,10 +131,6 @@ class FluxAPI extends Tool {
     }
     this.returnMetadata = fields.returnMetadata ?? false;
 
-    if (this.isAgent) {
-      this.responseFormat = 'content_and_artifact';
-    }
-
     if (fields.processFileURL) {
       /** @type {processFileURL} Necessary for output to contain all image metadata. */
       this.processFileURL = fields.processFileURL.bind(this);
@@ -149,7 +148,7 @@ class FluxAPI extends Tool {
     // Use action: 'list_finetunes' to see available custom models. When using finetunes, use endpoint: '/v1/flux-pro-finetuned' (default) or '/v1/flux-pro-1.1-ultra-finetuned' for higher quality and aspect ratio.`;
 
     // Add base URL from environment variable with fallback
-    this.baseUrl = process.env.FLUX_API_BASE_URL || 'https://api.us1.bfl.ai';
+    this.baseUrl = process.env.FLUX_API_BASE_URL || 'https://api.bfl.ai';
 
     this.schema = fluxApiJsonSchema;
   }
@@ -198,15 +197,33 @@ class FluxAPI extends Tool {
 
   async _call(data) {
     // Coerce string values to their expected types (some LLMs send all params as strings)
-    if (typeof data.width === 'string') { data.width = Number(data.width); }
-    if (typeof data.height === 'string') { data.height = Number(data.height); }
-    if (typeof data.steps === 'string') { data.steps = Number(data.steps); }
-    if (typeof data.seed === 'string') { data.seed = Number(data.seed); }
-    if (typeof data.safety_tolerance === 'string') { data.safety_tolerance = Number(data.safety_tolerance); }
-    if (typeof data.finetune_strength === 'string') { data.finetune_strength = Number(data.finetune_strength); }
-    if (typeof data.guidance === 'string') { data.guidance = Number(data.guidance); }
-    if (typeof data.prompt_upsampling === 'string') { data.prompt_upsampling = data.prompt_upsampling === 'true'; }
-    if (typeof data.raw === 'string') { data.raw = data.raw === 'true'; }
+    if (typeof data.width === 'string') {
+      data.width = Number(data.width);
+    }
+    if (typeof data.height === 'string') {
+      data.height = Number(data.height);
+    }
+    if (typeof data.steps === 'string') {
+      data.steps = Number(data.steps);
+    }
+    if (typeof data.seed === 'string') {
+      data.seed = Number(data.seed);
+    }
+    if (typeof data.safety_tolerance === 'string') {
+      data.safety_tolerance = Number(data.safety_tolerance);
+    }
+    if (typeof data.finetune_strength === 'string') {
+      data.finetune_strength = Number(data.finetune_strength);
+    }
+    if (typeof data.guidance === 'string') {
+      data.guidance = Number(data.guidance);
+    }
+    if (typeof data.prompt_upsampling === 'string') {
+      data.prompt_upsampling = data.prompt_upsampling === 'true';
+    }
+    if (typeof data.raw === 'string') {
+      data.raw = data.raw === 'true';
+    }
 
     const { action = 'generate', ...imageData } = data;
 
@@ -254,7 +271,6 @@ class FluxAPI extends Tool {
     }
 
     const generateUrl = `${this.baseUrl}${imageData.endpoint || '/v1/flux-pro-1.1'}`;
-    const resultUrl = `${this.baseUrl}/v1/get_result`;
 
     logger.debug('[FluxAPI] Generating image with payload:', payload);
     logger.debug('[FluxAPI] Using endpoint:', generateUrl);
@@ -270,18 +286,15 @@ class FluxAPI extends Tool {
         ...this.getAxiosConfig(),
       });
     } catch (error) {
-      const details = this.getDetails(error?.response?.data || error.message);
-      logger.error('[FluxAPI] Error while submitting task:', details);
-
-      return this.returnValue(
-        `Something went wrong when trying to generate the image. The Flux API may be unavailable:
-        Error Message: ${details}`,
-      );
+      return this.returnValue(formatToolError(error, 'Flux'));
     }
 
-    const taskId = taskResponse.data.id;
-    const pollingUrl = taskResponse.data.polling_url || `${resultUrl}?id=${taskId}`;
-    logger.debug(`[FluxAPI] Task ID: ${taskId}, Polling URL: ${pollingUrl}`);
+    const resultRequest = resolveFluxResultRequest(
+      this.baseUrl,
+      taskResponse.data.id,
+      taskResponse.data.polling_url,
+    );
+    logger.debug(`[FluxAPI] Task ID: ${taskResponse.data.id}, Polling URL: ${resultRequest.url}`);
 
     // Polling for the result
     let status = 'Pending';
@@ -300,13 +313,14 @@ class FluxAPI extends Tool {
         pollCount++;
         logger.debug(`[FluxAPI] Poll #${pollCount} waiting 2s...`);
         await new Promise((resolve) => setTimeout(resolve, 2000));
-        logger.debug(`[FluxAPI] Poll #${pollCount} fetching ${pollingUrl}`);
-        const resultResponse = await axios.get(pollingUrl, {
+        logger.debug(`[FluxAPI] Poll #${pollCount} fetching ${resultRequest.url}`);
+        const resultResponse = await axios.get(resultRequest.url, {
           headers: {
             'x-key': requestApiKey,
             Accept: 'application/json',
           },
-          ...this.getAxiosConfig(),
+          params: resultRequest.params,
+          ...applyAxiosProxyConfig({}, resultRequest.url),
         });
         status = resultResponse.data.status;
         logger.debug(`[FluxAPI] Poll #${pollCount} status: ${status}`);
@@ -324,7 +338,9 @@ class FluxAPI extends Tool {
           return this.returnValue(`Image generation failed: ${status}.`);
         }
       } catch (error) {
-        logger.error(`[FluxAPI] Poll #${pollCount} error: name=${error?.name} code=${error?.code} status=${error?.response?.status} message=${error?.message} data=${JSON.stringify(error?.response?.data)}`);
+        logger.error(
+          `[FluxAPI] Poll #${pollCount} error: name=${error?.name} code=${error?.code} status=${error?.response?.status} message=${error?.message} data=${JSON.stringify(error?.response?.data)}`,
+        );
         return this.returnValue('An error occurred while retrieving the image.');
       }
     }
@@ -349,6 +365,8 @@ class FluxAPI extends Tool {
           fileName: imageName,
           basePath: 'images',
           context: FileContext.image_generation,
+          tenantId: this.tenantId,
+          req: this.retentionRequest,
         });
 
         const file_ids = [result.file_id || uuidv4()];
@@ -375,15 +393,7 @@ class FluxAPI extends Tool {
         }
         const imageResponse = await fetch(imageUrl, fetchOptions);
         const arrayBuffer = await imageResponse.arrayBuffer();
-        const base64 = Buffer.from(arrayBuffer).toString('base64');
-        const content = [
-          {
-            type: ContentTypes.IMAGE_URL,
-            image_url: {
-              url: `data:image/png;base64,${base64}`,
-            },
-          },
-        ];
+        const artifact = await createImageToolArtifact(Buffer.from(arrayBuffer));
 
         const file_ids = [uuidv4()];
         const response = [
@@ -393,10 +403,9 @@ class FluxAPI extends Tool {
           },
         ];
         // Include content for saveBase64Image to process in callback
-        return [response, { content, file_ids }];
+        return [response, { ...artifact, file_ids }];
       } catch (error) {
-        logger.error('Error processing image for agent:', error);
-        return this.returnValue(`Failed to process the image. ${error.message}`);
+        return this.returnValue(formatToolError(error, 'Flux'));
       }
     }
 
@@ -427,9 +436,7 @@ class FluxAPI extends Tool {
       this.result = this.returnMetadata ? result : this.wrapInMarkdown(result.filepath);
       return this.returnValue(this.result);
     } catch (error) {
-      const details = this.getDetails(error?.message ?? 'No additional error details.');
-      logger.error('Error while saving the image:', details);
-      return this.returnValue(`Failed to save the image locally. ${details}`);
+      return this.returnValue(formatToolError(error, 'Flux'));
     }
   }
 
@@ -479,9 +486,7 @@ class FluxAPI extends Tool {
       }
       return JSON.stringify(finetuneDetails);
     } catch (error) {
-      const details = this.getDetails(error?.response?.data || error.message);
-      logger.error('[FluxAPI] Error while getting finetunes:', details);
-      const errorMsg = `Failed to get finetunes: ${details}`;
+      const errorMsg = formatToolError(error, 'Flux');
       return this.isAgent ? this.returnValue([errorMsg, {}]) : new Error(errorMsg);
     }
   }
@@ -534,7 +539,6 @@ class FluxAPI extends Tool {
     }
 
     const generateUrl = `${this.baseUrl}${endpoint}`;
-    const resultUrl = `${this.baseUrl}/v1/get_result`;
 
     logger.debug('[FluxAPI] Generating finetuned image with payload:', payload);
     logger.debug('[FluxAPI] Using endpoint:', generateUrl);
@@ -550,16 +554,14 @@ class FluxAPI extends Tool {
         ...this.getAxiosConfig(),
       });
     } catch (error) {
-      const details = this.getDetails(error?.response?.data || error.message);
-      logger.error('[FluxAPI] Error while submitting finetuned task:', details);
-      return this.returnValue(
-        `Something went wrong when trying to generate the finetuned image. The Flux API may be unavailable:
-        Error Message: ${details}`,
-      );
+      return this.returnValue(formatToolError(error, 'Flux'));
     }
 
-    const taskId = taskResponse.data.id;
-    const pollingUrl = taskResponse.data.polling_url || `${resultUrl}?id=${taskId}`;
+    const resultRequest = resolveFluxResultRequest(
+      this.baseUrl,
+      taskResponse.data.id,
+      taskResponse.data.polling_url,
+    );
 
     // Polling for the result
     let status = 'Pending';
@@ -576,12 +578,13 @@ class FluxAPI extends Tool {
       try {
         // Wait 2 seconds between polls
         await new Promise((resolve) => setTimeout(resolve, 2000));
-        const resultResponse = await axios.get(pollingUrl, {
+        const resultResponse = await axios.get(resultRequest.url, {
           headers: {
             'x-key': requestApiKey,
             Accept: 'application/json',
           },
-          ...this.getAxiosConfig(),
+          params: resultRequest.params,
+          ...applyAxiosProxyConfig({}, resultRequest.url),
         });
         status = resultResponse.data.status;
 
@@ -594,7 +597,11 @@ class FluxAPI extends Tool {
             'The prompt was rejected by the image-generation provider (content moderation). Please try a different prompt.',
           );
         } else if (TERMINAL_FT_STATUSES.has(status)) {
-          logger.error('[FluxAPI] Terminal failure status (finetuned):', status, resultResponse.data);
+          logger.error(
+            '[FluxAPI] Terminal failure status (finetuned):',
+            status,
+            resultResponse.data,
+          );
           return this.returnValue(`Finetuned image generation failed: ${status}.`);
         }
       } catch (error) {
@@ -622,15 +629,7 @@ class FluxAPI extends Tool {
         }
         const imageResponse = await fetch(imageUrl, fetchOptions);
         const arrayBuffer = await imageResponse.arrayBuffer();
-        const base64 = Buffer.from(arrayBuffer).toString('base64');
-        const content = [
-          {
-            type: ContentTypes.IMAGE_URL,
-            image_url: {
-              url: `data:image/png;base64,${base64}`,
-            },
-          },
-        ];
+        const artifact = await createImageToolArtifact(Buffer.from(arrayBuffer));
 
         const response = [
           {
@@ -638,10 +637,9 @@ class FluxAPI extends Tool {
             text: displayMessage,
           },
         ];
-        return [response, { content }];
+        return [response, artifact];
       } catch (error) {
-        logger.error('[FluxAPI] Error processing finetuned image for agent:', error);
-        return this.returnValue(`Failed to process the finetuned image. ${error.message}`);
+        return this.returnValue(formatToolError(error, 'Flux'));
       }
     }
 
@@ -663,9 +661,7 @@ class FluxAPI extends Tool {
       this.result = this.returnMetadata ? result : this.wrapInMarkdown(result.filepath);
       return this.returnValue(this.result);
     } catch (error) {
-      const details = this.getDetails(error?.message ?? 'No additional error details.');
-      logger.error('Error while saving the finetuned image:', details);
-      return this.returnValue(`Failed to save the finetuned image locally. ${details}`);
+      return this.returnValue(formatToolError(error, 'Flux'));
     }
   }
 }
