@@ -41,6 +41,8 @@ fi
 
 log "Installing dependencies (in case upstream bumped anything)"
 npm install
+# Upstream's lockfile is authoritative; a different local npm only reorders it.
+git checkout -- package-lock.json
 
 log "Building all packages + client (bind-mounted dist/ dirs)"
 npm run build
